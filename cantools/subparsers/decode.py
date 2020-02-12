@@ -3,14 +3,36 @@ import sys
 import re
 import binascii
 import struct
+import time
+import os
+from influxdb import InfluxDBClient
 
 from .. import database
 from .utils import format_message_by_frame_id
 
+CLIENT = InfluxDBClient(host='127.0.0.1', port=8086, database='sbc_can_python')
+CLIENT.create_database('sbc_can_python')
+HOSTNAME = os.uname().nodename
+IMPORT_TIME = int(time.time())
 
 # Matches 'candump' output, i.e. "vcan0  1F0   [8]  00 00 00 00 00 00 1B C1".
 RE_CANDUMP = re.compile(r'^.*  ([0-9A-F]+)   \[\d+\]\s*([0-9A-F ]*)$')
+# Matches 'candump -L' log file, i.e. "(1575305161.758357) can0 201#0000000062".
+RE_CANDUMP_LOG = re.compile(r'^\(([0-9]{10}.[0-9]{6})\) ([A-Za-z]{3,4}[0-9]{1,2}) ([0-9A-Za-z]{3})#([0-9A-Za-z]{2,16})$')
 
+def _log_mo_unpack(mo):
+    timestamp = mo.group(1)
+    timestamp = int(timestamp.replace('.','')[:-3])
+    link = mo.group(2)
+    frame_id = mo.group(3)
+    frame_id = '0' * (8 - len(frame_id)) + frame_id
+    frame_id = binascii.unhexlify(frame_id)
+    frame_id = struct.unpack('>I', frame_id)[0]
+    data = mo.group(4)
+    data = data.ljust(16, '0')
+    data = binascii.unhexlify(data)
+
+    return timestamp, link, frame_id, data
 
 def _mo_unpack(mo):
     frame_id = mo.group(1)
@@ -30,12 +52,15 @@ def _do_decode(args):
                                frame_id_mask=args.frame_id_mask,
                                strict=not args.no_strict)
     decode_choices = not args.no_decode_choices
+    influx_json = []
 
     while True:
         line = sys.stdin.readline()
 
         # Break at EOF.
         if not line:
+            if CLIENT.write_points(influx_json, time_precision='ms'):
+                print('Write complete')
             break
 
         line = line.strip('\r\n')
@@ -49,8 +74,32 @@ def _do_decode(args):
                                                data,
                                                decode_choices,
                                                args.single_line)
+        else:
+            mo = RE_CANDUMP_LOG.match(line)
+            if mo:
+                timestamp, link, frame_id, data = _log_mo_unpack(mo)
+                line += ' ::'
+                line += format_message_by_frame_id(dbase,
+                                                   frame_id,
+                                                   data,
+                                                   decode_choices,
+                                                   args.single_line)
 
-        print(line)
+        # print(line)
+        signals = dbase.decode_message(frame_id, data, decode_choices=False)
+        message = dbase.get_message_by_frame_id(frame_id)
+        if message and signals:
+            influx_json.append({
+                "measurement": message.name,
+                "tags": {
+                    "link": link,
+                    "import_time": IMPORT_TIME,
+                    "host": HOSTNAME,
+                    "dbc": args.database
+                },
+                "time": timestamp,
+                "fields": signals
+            })
 
 
 def add_subparser(subparsers):
