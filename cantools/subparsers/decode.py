@@ -1,27 +1,27 @@
 from __future__ import print_function
 import sys
+import time
+import os
 import re
 import binascii
 import struct
-import time
-import os
+
 from influxdb import InfluxDBClient
 
 from .. import database
 from .utils import format_message_by_frame_id
 
-CLIENT = InfluxDBClient(host='127.0.0.1', port=8086, database='sbc_can_python')
-CLIENT.create_database('sbc_can_python')
-HOSTNAME = os.uname().nodename
 IMPORT_TIME = int(time.time())
+HOSTNAME = os.uname().nodename
 
 # Matches 'candump' output, i.e. "vcan0  1F0   [8]  00 00 00 00 00 00 1B C1".
 RE_CANDUMP = re.compile(r'^.*  ([0-9A-F]+)   \[\d+\]\s*([0-9A-F ]*)$')
 # Matches 'candump -L' log file, i.e. "(1575305161.758357) can0 201#0000000062".
-RE_CANDUMP_LOG = re.compile(r'^\(([0-9]{10}.[0-9]{6})\) ([A-Za-z]{3,4}[0-9]{1,2}) ([0-9A-Za-z]{3})#([0-9A-Za-z]{2,16})$')
+RE_CANDUMP_LOG = re.compile(r'^\(([0-9]{10}.[0-9]{6})\) ([A-Za-z]{3,4}[0-9]{1,2}) ([0-9A-Za-z]{3,8})#([0-9A-Za-z]{2,16})$')
 
 def _log_mo_unpack(mo):
     timestamp = mo.group(1)
+    # convert to int and to ms by stripping last 3 digits
     timestamp = int(timestamp.replace('.','')[:-3])
     link = mo.group(2)
     frame_id = mo.group(3)
@@ -35,6 +35,8 @@ def _log_mo_unpack(mo):
     return timestamp, link, frame_id, data
 
 def _mo_unpack(mo):
+    timestamp = int(time.time() / 1000)
+    link = mo.group(0)
     frame_id = mo.group(1)
     frame_id = '0' * (8 - len(frame_id)) + frame_id
     frame_id = binascii.unhexlify(frame_id)
@@ -43,7 +45,15 @@ def _mo_unpack(mo):
     data = data.replace(' ', '')
     data = binascii.unhexlify(data)
 
-    return frame_id, data
+    return timestamp, link, frame_id, data
+
+def _write_to_db(db, json, host='127.0.0.1', port=8086):
+    client = InfluxDBClient(host=host, port=port, database=db)
+    client.create_database(db)
+    if client.write_points(json, time_precision='ms'):
+        print('Write to InfluxDB complete')
+    else:
+        print('Write failed')
 
 
 def _do_decode(args):
@@ -52,6 +62,7 @@ def _do_decode(args):
                                frame_id_mask=args.frame_id_mask,
                                strict=not args.no_strict)
     decode_choices = not args.no_decode_choices
+
     influx_json = []
 
     while True:
@@ -59,47 +70,52 @@ def _do_decode(args):
 
         # Break at EOF.
         if not line:
-            if CLIENT.write_points(influx_json, time_precision='ms'):
-                print('Write complete')
+            if args.influxdb:
+                _write_to_db(args.influxdb, influx_json)
             break
 
         line = line.strip('\r\n')
-        mo = RE_CANDUMP.match(line)
 
-        if mo:
-            frame_id, data = _mo_unpack(mo)
-            line += ' ::'
-            line += format_message_by_frame_id(dbase,
-                                               frame_id,
-                                               data,
-                                               decode_choices,
-                                               args.single_line)
-        else:
+        # TODO dict with function calls for type
+        if args.filetype == 'dump':
+            mo = RE_CANDUMP.match(line)
+            if mo: timestamp, link, frame_id, data = _mo_unpack(mo)
+            else: break
+        elif args.filetype == 'log':
             mo = RE_CANDUMP_LOG.match(line)
-            if mo:
-                timestamp, link, frame_id, data = _log_mo_unpack(mo)
-                line += ' ::'
-                line += format_message_by_frame_id(dbase,
-                                                   frame_id,
-                                                   data,
-                                                   decode_choices,
-                                                   args.single_line)
+            if mo: timestamp, link, frame_id, data = _log_mo_unpack(mo)
+            else: break
+        else:
+            # argparse should not let us get here
+            print('Invalid filetype!')
+            break
 
-        # print(line)
-        signals = dbase.decode_message(frame_id, data, decode_choices=False)
-        message = dbase.get_message_by_frame_id(frame_id)
-        if message and signals:
-            influx_json.append({
-                "measurement": message.name,
-                "tags": {
-                    "link": link,
-                    "import_time": IMPORT_TIME,
-                    "host": HOSTNAME,
-                    "dbc": args.database
-                },
-                "time": timestamp,
-                "fields": signals
-            })
+
+        line += ' ::'
+        line += format_message_by_frame_id(dbase,
+                                           frame_id,
+                                           data,
+                                           decode_choices,
+                                           args.single_line)
+
+        if not args.quiet: print(line)
+
+        if args.influxdb:
+            signals = dbase.decode_message(frame_id, data, decode_choices=False)
+            message = dbase.get_message_by_frame_id(frame_id)
+
+            if message and signals:
+                influx_json.append({
+                    "measurement": message.name,
+                    "tags": {
+                        "link": link,
+                        "import_time": IMPORT_TIME,
+                        "host": HOSTNAME,
+                        "dbc": args.database
+                    },
+                    "time": timestamp,
+                    "fields": signals
+                })
 
 
 def add_subparser(subparsers):
@@ -115,6 +131,18 @@ def add_subparser(subparsers):
         '-s', '--single-line',
         action='store_true',
         help='Print the decoded message on a single line.')
+    decode_parser.add_argument(
+        '-q', '--quiet',
+        action='store_true',
+        help='Do not print decoding to stdout')
+    decode_parser.add_argument(
+        '-i', '--influxdb',
+        help='Write decoded signal to influxdb database')
+    decode_parser.add_argument(
+        '-f', '--filetype',
+        default='dump',
+        choices=['dump', 'log'],
+        help='CAN file input type')
     decode_parser.add_argument(
         '-e', '--encoding',
         help='File encoding.')
