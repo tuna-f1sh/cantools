@@ -71,7 +71,7 @@ def _do_decode(args):
         # Break at EOF.
         if not line:
             if args.influxdb:
-                _write_to_db(args.influxdb, influx_json)
+                _write_to_db(args.influxdb, influx_json, args.influxdb_ip, args.influxdb_port)
             break
 
         line = line.strip('\r\n')
@@ -137,7 +137,15 @@ def add_subparser(subparsers):
         help='Do not print decoding to stdout')
     decode_parser.add_argument(
         '-i', '--influxdb',
-        help='Write decoded signal to influxdb database')
+        help='Write decoded signal to influxdb database name')
+    decode_parser.add_argument(
+        '--influxdb-host',
+        default='127.0.0.1',
+        help='InfluxDB server host address')
+    decode_parser.add_argument(
+        '--influxdb-port',
+        default='8086',
+        help='InfluxDB server port')
     decode_parser.add_argument(
         '-f', '--filetype',
         default='dump',
