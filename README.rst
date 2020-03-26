@@ -34,7 +34,7 @@ Installation
 
 .. code-block:: python
 
-    pip install cantools
+    pip install git+https://github.com/tuna-f1sh/cantools.git#egg=cantools
 
 Example usage
 =============
@@ -120,6 +120,13 @@ Alternatively, the decoded message can be printed on a single line:
      vcan0  1F0   [8]  80 4A 0F 00 00 00 00 00 :: ExampleMessage(Enable: 'Enabled' -, AverageRadius: 0.0 m, Temperature: 255.92 degK)
      vcan0  1F0   [8]  80 4A 0F 00 00 00 00 00 :: ExampleMessage(Enable: 'Enabled' -, AverageRadius: 0.0 m, Temperature: 255.92 degK)
      vcan0  1F0   [8]  80 4A 0F 00 00 00 00 00 :: ExampleMessage(Enable: 'Enabled' -, AverageRadius: 0.0 m, Temperature: 255.92 degK)
+
+InfluxDB import
+^^^^^^^^^^^^^^^^^^^
+
+Use ``decode`` with the ``--influxdb INFLUX_DB`` to write to an InfluxDB database at the end of parsing. The default is a locally running InfluxDB instance. To use an enternal server, pass ``--influxdb-host`` and ``--influxdb-port`` if non-default.
+
+Import works with the default file stream and ``filetype`` log - the timestamps in the logfile will be used during database write in this case.
 
 The dump subcommand
 ^^^^^^^^^^^^^^^^^^^

@@ -4,3 +4,4 @@ mock
 python-can
 textparser
 diskcache
+influxdb

@@ -1,18 +1,21 @@
 from __future__ import print_function
 import sys
-import time
 import os
+import time
+import datetime
 import re
 import binascii
 import struct
+import uuid
 
 from influxdb import InfluxDBClient
 
 from .. import database
 from .utils import format_message_by_frame_id
 
-IMPORT_TIME = int(time.time())
+IMPORT_TIME = datetime.datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%dT%H:%M:%SZ')
 HOSTNAME = os.uname().nodename
+UUID = str(uuid.uuid4())
 
 # Matches 'candump' output, i.e. "vcan0  1F0   [8]  00 00 00 00 00 00 1B C1".
 RE_CANDUMP = re.compile(r'^.*  ([0-9A-F]+)   \[\d+\]\s*([0-9A-F ]*)$')
@@ -23,6 +26,8 @@ def _log_mo_unpack(mo):
     timestamp = mo.group(1)
     # convert to int and to ms by stripping last 3 digits
     timestamp = int(timestamp.replace('.','')[:-3])
+    # timestamp = float(timestamp)
+    # timestamp = datetime.datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
     link = mo.group(2)
     frame_id = mo.group(3)
     frame_id = '0' * (8 - len(frame_id)) + frame_id
@@ -35,7 +40,9 @@ def _log_mo_unpack(mo):
     return timestamp, link, frame_id, data
 
 def _mo_unpack(mo):
-    timestamp = int(time.time() / 1000)
+    timestamp = time.time()
+    # timestamp = datetime.datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    timestamp = int(timestamp / 1000)
     link = mo.group(0)
     frame_id = mo.group(1)
     frame_id = '0' * (8 - len(frame_id)) + frame_id
@@ -50,10 +57,15 @@ def _mo_unpack(mo):
 def _write_to_db(db, json, host='127.0.0.1', port=8086):
     client = InfluxDBClient(host=host, port=port, database=db)
     client.create_database(db)
-    if client.write_points(json, time_precision='ms'):
-        print('Write to InfluxDB complete')
-    else:
-        print('Write failed')
+    # if client.write_points(json, time_precision='u', batch_size=100):
+    #     print('Write complete')
+    # else:
+    #     print('Write failed')
+    for x in range(0, len(json), 100):
+        if client.write_points(json[x:x+100], time_precision='ms'):
+            print('Chunk {} of {} write complete'.format(x/100, int(len(json)/100)))
+        else:
+            print('Write {} of {} failed'.format(x, int(len(json)/100)))
 
 
 def _do_decode(args):
@@ -65,57 +77,69 @@ def _do_decode(args):
 
     influx_json = []
 
-    while True:
-        line = sys.stdin.readline()
+    try:
+        while True:
+            line = sys.stdin.readline()
 
-        # Break at EOF.
-        if not line:
+            # Break at EOF.
+            if not line:
+                if args.influxdb:
+                    _write_to_db(args.influxdb, influx_json, args.influxdb_host, args.influxdb_port)
+                break
+
+            line = line.strip('\r\n')
+
+            # TODO dict with function calls for type
+            if args.filetype == 'dump':
+                mo = RE_CANDUMP.match(line)
+                if mo: timestamp, link, frame_id, data = _mo_unpack(mo)
+                else: break
+            elif args.filetype == 'log':
+                mo = RE_CANDUMP_LOG.match(line)
+                if mo: timestamp, link, frame_id, data = _log_mo_unpack(mo)
+                else: break
+            else:
+                # argparse should not let us get here
+                print('Invalid filetype!')
+                break
+
+
+            line += ' ::'
+            line += format_message_by_frame_id(dbase,
+                                               frame_id,
+                                               data,
+                                               decode_choices,
+                                               args.single_line)
+
+            if not args.quiet: print(line)
+
             if args.influxdb:
-                _write_to_db(args.influxdb, influx_json, args.influxdb_ip, args.influxdb_port)
-            break
+                signals = dbase.decode_message(frame_id, data, decode_choices=False)
+                message = dbase.get_message_by_frame_id(frame_id)
 
-        line = line.strip('\r\n')
+                if message and signals:
+                    json = {
+                        "measurement": message.name,
+                        "tags": {
+                            "link": link,
+                            "import_time": IMPORT_TIME,
+                            "host": HOSTNAME,
+                            "uuid": UUID,
+                            "dbc": args.database
+                        },
+                        "time": timestamp,
+                        "fields": signals
+                    }
+                    influx_json.append(json)
 
-        # TODO dict with function calls for type
-        if args.filetype == 'dump':
-            mo = RE_CANDUMP.match(line)
-            if mo: timestamp, link, frame_id, data = _mo_unpack(mo)
-            else: break
-        elif args.filetype == 'log':
-            mo = RE_CANDUMP_LOG.match(line)
-            if mo: timestamp, link, frame_id, data = _log_mo_unpack(mo)
-            else: break
-        else:
-            # argparse should not let us get here
-            print('Invalid filetype!')
-            break
+                    if not args.quiet: print(json)
+                    # _write_to_db(args.influxdb, [json], args.influxdb_host, args.influxdb_port)
 
-
-        line += ' ::'
-        line += format_message_by_frame_id(dbase,
-                                           frame_id,
-                                           data,
-                                           decode_choices,
-                                           args.single_line)
-
-        if not args.quiet: print(line)
-
+    except KeyboardInterrupt:
         if args.influxdb:
-            signals = dbase.decode_message(frame_id, data, decode_choices=False)
-            message = dbase.get_message_by_frame_id(frame_id)
+            print('Interupted! Please wait whilst writing to InfluxDB')
+            _write_to_db(args.influxdb, influx_json, args.influxdb_host, args.influxdb_port)
 
-            if message and signals:
-                influx_json.append({
-                    "measurement": message.name,
-                    "tags": {
-                        "link": link,
-                        "import_time": IMPORT_TIME,
-                        "host": HOSTNAME,
-                        "dbc": args.database
-                    },
-                    "time": timestamp,
-                    "fields": signals
-                })
 
 
 def add_subparser(subparsers):
