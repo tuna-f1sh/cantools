@@ -63,9 +63,9 @@ def _write_to_db(db, json, host='127.0.0.1', port=8086):
     #     print('Write failed')
     for x in range(0, len(json), 100):
         if client.write_points(json[x:x+100], time_precision='ms'):
-            print('Chunk {} of {} write complete'.format(x/100, int(len(json)/100)))
+            print('Chunk {} of {} write complete'.format(int(x/100), int(len(json)/100)))
         else:
-            print('Write {} of {} failed'.format(x, int(len(json)/100)))
+            print('Write {} of {} failed'.format(int(x), int(len(json)/100)))
 
 
 def _do_decode(args):
