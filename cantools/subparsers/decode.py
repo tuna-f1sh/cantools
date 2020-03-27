@@ -8,6 +8,7 @@ import binascii
 import struct
 import uuid
 
+from tqdm import tqdm
 from influxdb import InfluxDBClient
 
 from .. import database
@@ -22,12 +23,15 @@ RE_CANDUMP = re.compile(r'^.*  ([0-9A-F]+)   \[\d+\]\s*([0-9A-F ]*)$')
 # Matches 'candump -L' log file, i.e. "(1575305161.758357) can0 201#0000000062".
 RE_CANDUMP_LOG = re.compile(r'^\(([0-9]{10}.[0-9]{6})\) ([A-Za-z]{3,4}[0-9]{1,2}) ([0-9A-Za-z]{3,8})#([0-9A-Za-z]{2,16})$')
 
+def _human_timestamp(timestamp, prescision=1e9):
+    timestamp = timestamp / prescision
+    return datetime.datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
 def _log_mo_unpack(mo):
     timestamp = mo.group(1)
-    # convert to int and to ms by stripping last 3 digits
-    timestamp = int(timestamp.replace('.','')[:-3])
-    # timestamp = float(timestamp)
-    # timestamp = datetime.datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    # convert to float and to int ns by multiply by 1e9 before convert
+    timestamp = float(timestamp)
+    timestamp = int(timestamp * 1e9)
     link = mo.group(2)
     frame_id = mo.group(3)
     frame_id = '0' * (8 - len(frame_id)) + frame_id
@@ -41,8 +45,8 @@ def _log_mo_unpack(mo):
 
 def _mo_unpack(mo):
     timestamp = time.time()
-    # timestamp = datetime.datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-    timestamp = int(timestamp / 1000)
+    # convert to ns
+    timestamp = int(timestamp * 1e9)
     link = mo.group(0)
     frame_id = mo.group(1)
     frame_id = '0' * (8 - len(frame_id)) + frame_id
@@ -54,18 +58,10 @@ def _mo_unpack(mo):
 
     return timestamp, link, frame_id, data
 
-def _write_to_db(db, json, host='127.0.0.1', port=8086):
-    client = InfluxDBClient(host=host, port=port, database=db)
-    client.create_database(db)
-    # if client.write_points(json, time_precision='u', batch_size=100):
-    #     print('Write complete')
-    # else:
-    #     print('Write failed')
-    for x in range(0, len(json), 100):
-        if client.write_points(json[x:x+100], time_precision='ms'):
-            print('Chunk {} of {} write complete'.format(int(x/100), int(len(json)/100)))
-        else:
-            print('Write {} of {} failed'.format(int(x), int(len(json)/100)))
+def _write_to_db(client, json, cs=100):
+    for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
+        if not client.write_points(json[x:x+cs], time_precision='n'):
+            print('Write {} of {} failed'.format(int(x), int(len(json)/cs)))
 
 
 def _do_decode(args):
@@ -75,7 +71,11 @@ def _do_decode(args):
                                strict=not args.no_strict)
     decode_choices = not args.no_decode_choices
 
-    influx_json = []
+    if (args.influxdb):
+        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb)
+        client.create_database(args.influxdb)
+        influx_json = []
+        writing = False
 
     try:
         while True:
@@ -83,8 +83,12 @@ def _do_decode(args):
 
             # Break at EOF.
             if not line:
+                # TODO would be better to que writes to influx thread, rather than dump at the end
                 if args.influxdb:
-                    _write_to_db(args.influxdb, influx_json, args.influxdb_host, args.influxdb_port)
+                    writing = True
+                    if args.filetype == 'log':
+                        print('Saving historical ride {} -> {}'.format(_human_timestamp(influx_json[0]['time']), _human_timestamp(influx_json[-1]['time'])))
+                    _write_to_db(client, influx_json)
                 break
 
             line = line.strip('\r\n')
@@ -132,13 +136,13 @@ def _do_decode(args):
                     }
                     influx_json.append(json)
 
-                    if not args.quiet: print(json)
-                    # _write_to_db(args.influxdb, [json], args.influxdb_host, args.influxdb_port)
+                    if not args.quiet: print('InfluxDB json: {}'.format(json))
+
 
     except KeyboardInterrupt:
-        if args.influxdb:
+        if args.influxdb and not writing:
             print('Interupted! Please wait whilst writing to InfluxDB')
-            _write_to_db(args.influxdb, influx_json, args.influxdb_host, args.influxdb_port)
+            _write_to_db(client, influx_json)
 
 
 
