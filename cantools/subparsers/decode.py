@@ -7,6 +7,7 @@ import re
 import binascii
 import struct
 import uuid
+import asyncio
 
 from tqdm import tqdm
 from influxdb import InfluxDBClient
@@ -58,13 +59,23 @@ def _mo_unpack(mo):
 
     return timestamp, link, frame_id, data
 
-def _write_to_db(client, json, cs=100):
-    for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
-        if not client.write_points(json[x:x+cs], time_precision='n'):
-            print('Write {} of {} failed'.format(int(x), int(len(json)/cs)))
+def _write_to_db(client, json, cs=100, quiet=True):
+    if quiet:
+        for x in range(0, len(json), cs):
+            client.write_points(json[x:x+cs], time_precision='n')
+    else:
+        for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
+            if not client.write_points(json[x:x+cs], time_precision='n'):
+                print('Write {} of {} failed'.format(int(x), int(len(json)/cs)))
 
+async def _influx_worker(client, queue, quiet=True):
+    while True:
+        json = await queue.get()
+        if not quiet: print('Worker writing to influxdb')
+        client.write_points(json, time_precision='n')
+        queue.task_done()
 
-def _do_decode(args):
+async def _do_decode(args):
     dbase = database.load_file(args.database,
                                encoding=args.encoding,
                                frame_id_mask=args.frame_id_mask,
@@ -74,8 +85,10 @@ def _do_decode(args):
     if (args.influxdb):
         client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb)
         client.create_database(args.influxdb)
+        queue = asyncio.Queue()
+        influx_task = asyncio.create_task(_influx_worker(client, queue, quiet=args.quiet))
         influx_json = []
-        writing = False
+        first = True
 
     try:
         while True:
@@ -83,12 +96,13 @@ def _do_decode(args):
 
             # Break at EOF.
             if not line:
-                # TODO would be better to que writes to influx thread, rather than dump at the end
                 if args.influxdb:
-                    writing = True
-                    if args.filetype == 'log':
-                        print('Saving historical ride {} -> {}'.format(_human_timestamp(influx_json[0]['time']), _human_timestamp(influx_json[-1]['time'])))
-                    _write_to_db(client, influx_json)
+                    if len(influx_json) > 0:
+                        if args.filetype == 'log': print('Historical ride stop time {}'.format(_human_timestamp(influx_json[-1]['time'])))
+                        queue.put_nowait(influx_json)
+                    await queue.join()
+                    if not influx_task.done(): influx_task.cancel()
+                    await asyncio.gather(influx_task, return_exceptions=True)
                 break
 
             line = line.strip('\r\n')
@@ -134,16 +148,31 @@ def _do_decode(args):
                         "time": timestamp,
                         "fields": signals
                     }
+
                     influx_json.append(json)
+
+                    # write every 100 chunks
+                    if len(influx_json) >= 100:
+                        queue.put_nowait(influx_json)
+                        influx_json.clear()
+
+                    if args.filetype == 'log' and args.influxdb and first:
+                        print('Saving historical ride, start time {}'.format(_human_timestamp(json['time'])))
+                        first = False
 
                     if not args.quiet: print('InfluxDB json: {}'.format(json))
 
 
     except KeyboardInterrupt:
-        if args.influxdb and not writing:
+        if args.influxdb and not influx_task.done():
             print('Interupted! Please wait whilst writing to InfluxDB')
-            _write_to_db(client, influx_json)
+            await queue.join()
+            influx_task.cancel()
+            await asyncio.gather(influx_task, return_exceptions=True)
 
+
+def main_decode(args):
+    asyncio.run(_do_decode(args))
 
 
 def add_subparser(subparsers):
@@ -195,4 +224,4 @@ def add_subparser(subparsers):
     decode_parser.add_argument(
         'database',
         help='Database file.')
-    decode_parser.set_defaults(func=_do_decode)
+    decode_parser.set_defaults(func=main_decode)
