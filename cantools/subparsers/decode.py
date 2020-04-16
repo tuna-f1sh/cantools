@@ -83,7 +83,7 @@ async def _do_decode(args):
     decode_choices = not args.no_decode_choices
 
     if (args.influxdb):
-        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb)
+        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
         client.create_database(args.influxdb)
         queue = asyncio.Queue()
         influx_task = asyncio.create_task(_influx_worker(client, queue, quiet=args.quiet))
@@ -203,6 +203,14 @@ def add_subparser(subparsers):
         '--influxdb-port',
         default='8086',
         help='InfluxDB server port')
+    decode_parser.add_argument(
+        '--influxdb-username',
+        default='root',
+        help='InfluxDB server user')
+    decode_parser.add_argument(
+        '--influxdb-password',
+        default='root',
+        help='InfluxDB server password')
     decode_parser.add_argument(
         '-f', '--filetype',
         default='dump',
