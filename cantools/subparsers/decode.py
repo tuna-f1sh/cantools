@@ -7,7 +7,6 @@ import re
 import binascii
 import struct
 import uuid
-import asyncio
 
 from tqdm import tqdm
 from influxdb import InfluxDBClient
@@ -59,23 +58,16 @@ def _mo_unpack(mo):
 
     return timestamp, link, frame_id, data
 
-def _write_to_db(client, json, cs=100, quiet=True):
-    if quiet:
-        for x in range(0, len(json), cs):
-            client.write_points(json[x:x+cs], time_precision='n')
-    else:
-        for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
-            if not client.write_points(json[x:x+cs], time_precision='n'):
-                print('Write {} of {} failed'.format(int(x), int(len(json)/cs)))
+def _write_to_db(client, json, cs=100):
+    for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
+        if not client.write_points(json[x:x+cs], time_precision='n'):
+            print('Write {} of {} failed'.format(int(x), int(len(json)/cs)))
+        # last bit if wasn't multiple of cs
+        if x > len(json):
+            client.write_points(json[x-cs::], time_precision='n')
 
-async def _influx_worker(client, queue, quiet=True):
-    while True:
-        json = await queue.get()
-        if not quiet: print('Worker writing to influxdb')
-        client.write_points(json, time_precision='n')
-        queue.task_done()
 
-async def _do_decode(args):
+def _do_decode(args):
     dbase = database.load_file(args.database,
                                encoding=args.encoding,
                                frame_id_mask=args.frame_id_mask,
@@ -83,96 +75,74 @@ async def _do_decode(args):
     decode_choices = not args.no_decode_choices
 
     if (args.influxdb):
-        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
+        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb)
         client.create_database(args.influxdb)
-        queue = asyncio.Queue()
-        influx_task = asyncio.create_task(_influx_worker(client, queue, quiet=args.quiet))
         influx_json = []
-        first = True
+        writing = False
 
     try:
-        while True:
-            line = sys.stdin.readline()
-
-            # Break at EOF.
-            if not line:
-                if args.influxdb:
-                    if len(influx_json) > 0:
-                        if args.filetype == 'log': print('Historical ride stop time {}'.format(_human_timestamp(influx_json[-1]['time'])))
-                        queue.put_nowait(influx_json)
-                    await queue.join()
-                    if not influx_task.done(): influx_task.cancel()
-                    await asyncio.gather(influx_task, return_exceptions=True)
-                break
+        for line in sys.stdin:
 
             line = line.strip('\r\n')
 
-            # TODO dict with function calls for type
             if args.filetype == 'dump':
                 mo = RE_CANDUMP.match(line)
                 if mo: timestamp, link, frame_id, data = _mo_unpack(mo)
-                else: break
+                else: continue
             elif args.filetype == 'log':
                 mo = RE_CANDUMP_LOG.match(line)
                 if mo: timestamp, link, frame_id, data = _log_mo_unpack(mo)
-                else: break
-            else:
-                # argparse should not let us get here
-                print('Invalid filetype!')
-                break
+                else: continue
 
-
-            line += ' ::'
-            line += format_message_by_frame_id(dbase,
-                                               frame_id,
-                                               data,
-                                               decode_choices,
-                                               args.single_line)
+            try:
+                line += ' ::'
+                line += format_message_by_frame_id(dbase,
+                                                   frame_id,
+                                                   data,
+                                                   decode_choices,
+                                                   args.single_line)
+            except KeyError:
+                print('Skipping as not in DB')
+                continue
 
             if not args.quiet: print(line)
 
-            if args.influxdb:
-                signals = dbase.decode_message(frame_id, data, decode_choices=False)
-                message = dbase.get_message_by_frame_id(frame_id)
+            try:
+                if args.influxdb:
+                    signals = dbase.decode_message(frame_id, data, decode_choices=False)
+                    message = dbase.get_message_by_frame_id(frame_id)
 
-                if message and signals:
-                    json = {
-                        "measurement": message.name,
-                        "tags": {
-                            "link": link,
-                            "import_time": IMPORT_TIME,
-                            "host": HOSTNAME,
-                            "uuid": UUID,
-                            "dbc": args.database
-                        },
-                        "time": timestamp,
-                        "fields": signals
-                    }
+                    if message and signals:
+                        json = {
+                            "measurement": message.name,
+                            "tags": {
+                                "link": link,
+                                "import_time": IMPORT_TIME,
+                                "host": HOSTNAME,
+                                "uuid": UUID,
+                                "dbc": args.database
+                            },
+                            "time": timestamp,
+                            "fields": signals
+                        }
+                        influx_json.append(json)
 
-                    influx_json.append(json)
+                        if not args.quiet: print('InfluxDB json: {}'.format(json))
+            except KeyError:
+                print('Skipping write')
 
-                    # write every 100 chunks
-                    if len(influx_json) >= 100:
-                        queue.put_nowait(influx_json)
-                        influx_json.clear()
-
-                    if args.filetype == 'log' and args.influxdb and first:
-                        print('Saving historical ride, start time {}'.format(_human_timestamp(json['time'])))
-                        first = False
-
-                    if not args.quiet: print('InfluxDB json: {}'.format(json))
+        if args.influxdb:
+            writing = True
+            if args.filetype == 'log':
+                print('Saving historical ride {} -> {}'.format(_human_timestamp(influx_json[0]['time']), _human_timestamp(influx_json[-1]['time'])))
+            _write_to_db(client, influx_json)
 
 
     except KeyboardInterrupt:
-        if args.influxdb and not influx_task.done():
+        if args.influxdb and not writing:
             print('Interupted! Please wait whilst writing to InfluxDB')
-            await queue.join()
-            influx_task.cancel()
-            await asyncio.gather(influx_task, return_exceptions=True)
+            _write_to_db(client, influx_json)
 
-
-def main_decode(args):
-    asyncio.run(_do_decode(args))
 
 
 def add_subparser(subparsers):
@@ -204,14 +174,6 @@ def add_subparser(subparsers):
         default='8086',
         help='InfluxDB server port')
     decode_parser.add_argument(
-        '--influxdb-username',
-        default='root',
-        help='InfluxDB server user')
-    decode_parser.add_argument(
-        '--influxdb-password',
-        default='root',
-        help='InfluxDB server password')
-    decode_parser.add_argument(
         '-f', '--filetype',
         default='dump',
         choices=['dump', 'log'],
@@ -232,4 +194,4 @@ def add_subparser(subparsers):
     decode_parser.add_argument(
         'database',
         help='Database file.')
-    decode_parser.set_defaults(func=main_decode)
+    decode_parser.set_defaults(func=_do_decode)
