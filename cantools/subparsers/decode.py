@@ -75,14 +75,13 @@ def _do_decode(args):
     decode_choices = not args.no_decode_choices
 
     if (args.influxdb):
-        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb)
+        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
         client.create_database(args.influxdb)
         influx_json = []
         writing = False
 
     try:
         for line in sys.stdin:
-
             line = line.strip('\r\n')
 
             if args.filetype == 'dump':
@@ -93,6 +92,8 @@ def _do_decode(args):
                 mo = RE_CANDUMP_LOG.match(line)
                 if mo: timestamp, link, frame_id, data = _log_mo_unpack(mo)
                 else: continue
+
+            if not frame_id in args.id_filter and len(args.id_filter) > 0: continue
 
             try:
                 line += ' ::'
@@ -111,6 +112,8 @@ def _do_decode(args):
                 if args.influxdb:
                     signals = dbase.decode_message(frame_id, data, decode_choices=False)
                     message = dbase.get_message_by_frame_id(frame_id)
+
+                    if not message in args.message_filter and len(args.message_filter) > 0: continue
 
                     if message and signals:
                         json = {
@@ -174,6 +177,14 @@ def add_subparser(subparsers):
         default='8086',
         help='InfluxDB server port')
     decode_parser.add_argument(
+        '--influxdb-username',
+        default='root',
+        help='InfluxDB server user')
+    decode_parser.add_argument(
+        '--influxdb-password',
+        default='root',
+        help='InfluxDB server password')
+    decode_parser.add_argument(
         '-f', '--filetype',
         default='dump',
         choices=['dump', 'log'],
@@ -185,6 +196,18 @@ def add_subparser(subparsers):
         '--no-strict',
         action='store_true',
         help='Skip database consistency checks.')
+    decode_parser.add_argument(
+        '-if', '--id_filter',
+        nargs='+',
+        default=[],
+        type=lambda x: int(x, 0),
+        help='Filter hex IDs')
+    decode_parser.add_argument(
+        '-mf', '--message_filter',
+        nargs='+',
+        default=[],
+        type=str,
+        help='Filter messages')
     decode_parser.add_argument(
         '-m', '--frame-id-mask',
         type=lambda x: int(x, 0),
