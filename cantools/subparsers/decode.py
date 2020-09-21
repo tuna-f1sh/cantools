@@ -62,6 +62,9 @@ def _write_to_db(client, json, cs=100):
     for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
         if not client.write_points(json[x:x+cs], time_precision='n'):
             print('Write {} of {} failed'.format(int(x), int(len(json)/cs)))
+        # last bit if wasn't multiple of cs
+        if x > len(json):
+            client.write_points(json[x-cs::], time_precision='n')
 
 
 def _do_decode(args):
@@ -72,71 +75,70 @@ def _do_decode(args):
     decode_choices = not args.no_decode_choices
 
     if (args.influxdb):
-        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb)
+        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, ssl=args.influxdb_ssl, path=args.influxdb_path, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
         client.create_database(args.influxdb)
         influx_json = []
         writing = False
 
     try:
-        while True:
-            line = sys.stdin.readline()
-
-            # Break at EOF.
-            if not line:
-                # TODO would be better to que writes to influx thread, rather than dump at the end
-                if args.influxdb:
-                    writing = True
-                    if args.filetype == 'log':
-                        print('Saving historical ride {} -> {}'.format(_human_timestamp(influx_json[0]['time']), _human_timestamp(influx_json[-1]['time'])))
-                    _write_to_db(client, influx_json)
-                break
-
+        for line in sys.stdin:
             line = line.strip('\r\n')
 
-            # TODO dict with function calls for type
             if args.filetype == 'dump':
                 mo = RE_CANDUMP.match(line)
                 if mo: timestamp, link, frame_id, data = _mo_unpack(mo)
-                else: break
+                else: continue
             elif args.filetype == 'log':
                 mo = RE_CANDUMP_LOG.match(line)
                 if mo: timestamp, link, frame_id, data = _log_mo_unpack(mo)
-                else: break
-            else:
-                # argparse should not let us get here
-                print('Invalid filetype!')
-                break
+                else: continue
 
+            if not frame_id in args.id_filter and len(args.id_filter) > 0: continue
 
-            line += ' ::'
-            line += format_message_by_frame_id(dbase,
-                                               frame_id,
-                                               data,
-                                               decode_choices,
-                                               args.single_line)
+            try:
+                line += ' ::'
+                line += format_message_by_frame_id(dbase,
+                                                   frame_id,
+                                                   data,
+                                                   decode_choices,
+                                                   args.single_line)
+            except KeyError:
+                print('Skipping as not in DB')
+                continue
 
             if not args.quiet: print(line)
 
-            if args.influxdb:
-                signals = dbase.decode_message(frame_id, data, decode_choices=False)
-                message = dbase.get_message_by_frame_id(frame_id)
+            try:
+                if args.influxdb:
+                    signals = dbase.decode_message(frame_id, data, decode_choices=False)
+                    message = dbase.get_message_by_frame_id(frame_id)
 
-                if message and signals:
-                    json = {
-                        "measurement": message.name,
-                        "tags": {
-                            "link": link,
-                            "import_time": IMPORT_TIME,
-                            "host": HOSTNAME,
-                            "uuid": UUID,
-                            "dbc": args.database
-                        },
-                        "time": timestamp,
-                        "fields": signals
-                    }
-                    influx_json.append(json)
+                    if not message in args.message_filter and len(args.message_filter) > 0: continue
 
-                    if not args.quiet: print('InfluxDB json: {}'.format(json))
+                    if message and signals:
+                        json = {
+                            "measurement": message.name,
+                            "tags": {
+                                "link": link,
+                                "import_time": IMPORT_TIME,
+                                "host": HOSTNAME,
+                                "uuid": UUID,
+                                "dbc": args.database
+                            },
+                            "time": timestamp,
+                            "fields": signals
+                        }
+                        influx_json.append(json)
+
+                        if not args.quiet: print('InfluxDB json: {}'.format(json))
+            except KeyError:
+                print('Skipping write')
+
+        if args.influxdb:
+            writing = True
+            if args.filetype == 'log':
+                print('Saving historical ride {} -> {}. UUID: {}'.format(_human_timestamp(influx_json[0]['time']), _human_timestamp(influx_json[-1]['time']), UUID))
+            _write_to_db(client, influx_json)
 
 
     except KeyboardInterrupt:
@@ -171,9 +173,25 @@ def add_subparser(subparsers):
         default='127.0.0.1',
         help='InfluxDB server host address')
     decode_parser.add_argument(
+        '--influxdb-ssl',
+        action='store_true',
+        help='InfluxDB server use ssl')
+    decode_parser.add_argument(
+        '--influxdb-path',
+        default='',
+        help='InfluxDB server path when using reverse proxy')
+    decode_parser.add_argument(
         '--influxdb-port',
         default='8086',
         help='InfluxDB server port')
+    decode_parser.add_argument(
+        '--influxdb-username',
+        default='root',
+        help='InfluxDB server user')
+    decode_parser.add_argument(
+        '--influxdb-password',
+        default='root',
+        help='InfluxDB server password')
     decode_parser.add_argument(
         '-f', '--filetype',
         default='dump',
@@ -186,6 +204,18 @@ def add_subparser(subparsers):
         '--no-strict',
         action='store_true',
         help='Skip database consistency checks.')
+    decode_parser.add_argument(
+        '-if', '--id_filter',
+        nargs='+',
+        default=[],
+        type=lambda x: int(x, 0),
+        help='Filter hex IDs')
+    decode_parser.add_argument(
+        '-mf', '--message_filter',
+        nargs='+',
+        default=[],
+        type=str,
+        help='Filter messages')
     decode_parser.add_argument(
         '-m', '--frame-id-mask',
         type=lambda x: int(x, 0),
