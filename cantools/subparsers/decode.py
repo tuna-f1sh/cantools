@@ -75,7 +75,7 @@ def _do_decode(args):
     decode_choices = not args.no_decode_choices
 
     if (args.influxdb):
-        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
+        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, ssl=args.influxdb_ssl, path=args.influxdb_path, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
         client.create_database(args.influxdb)
         influx_json = []
         writing = False
@@ -137,7 +137,7 @@ def _do_decode(args):
         if args.influxdb:
             writing = True
             if args.filetype == 'log':
-                print('Saving historical ride {} -> {}'.format(_human_timestamp(influx_json[0]['time']), _human_timestamp(influx_json[-1]['time'])))
+                print('Saving historical ride {} -> {}. UUID: {}'.format(_human_timestamp(influx_json[0]['time']), _human_timestamp(influx_json[-1]['time']), UUID))
             _write_to_db(client, influx_json)
 
 
@@ -172,6 +172,14 @@ def add_subparser(subparsers):
         '--influxdb-host',
         default='127.0.0.1',
         help='InfluxDB server host address')
+    decode_parser.add_argument(
+        '--influxdb-ssl',
+        action='store_true',
+        help='InfluxDB server use ssl')
+    decode_parser.add_argument(
+        '--influxdb-path',
+        default='',
+        help='InfluxDB server path when using reverse proxy')
     decode_parser.add_argument(
         '--influxdb-port',
         default='8086',
