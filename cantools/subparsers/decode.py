@@ -62,9 +62,9 @@ def _write_to_db(client, json, cs=100):
     for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
         if not client.write_points(json[x:x+cs], time_precision='n'):
             print('Write {} of {} failed'.format(int(x), int(len(json)/cs)))
-        # last bit if wasn't multiple of cs
-        if x > len(json):
-            client.write_points(json[x-cs::], time_precision='n')
+    # last bit if wasn't multiple of cs
+    if x < len(json):
+        client.write_points(json[x-cs::], time_precision='n')
 
 
 def _do_decode(args):
@@ -81,7 +81,12 @@ def _do_decode(args):
         writing = False
 
     try:
-        for line in sys.stdin:
+        if args.input:
+            fh = open(args.input, 'r')
+        else:
+            fh = sys.stdin
+
+        for line in fh:
             line = line.strip('\r\n')
 
             if args.filetype == 'dump':
@@ -197,6 +202,9 @@ def add_subparser(subparsers):
         default='dump',
         choices=['dump', 'log'],
         help='CAN file input type')
+    decode_parser.add_argument(
+        '-I', '--input',
+        help='Input file rather than stdin')
     decode_parser.add_argument(
         '-e', '--encoding',
         help='File encoding.')
