@@ -75,7 +75,7 @@ def _do_decode(args):
     decode_choices = not args.no_decode_choices
 
     if (args.influxdb):
-        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, ssl=args.influxdb_ssl, path=args.influxdb_path, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
+        client = InfluxDBClient(host=args.influxdb_host,port=args.influxdb_port, verify_ssl=args.influxdb_ssl, ssl=args.influxdb_ssl, path=args.influxdb_path, database=args.influxdb, username=args.influxdb_username, password=args.influxdb_password)
         client.create_database(args.influxdb)
         influx_json = []
         writing = False
