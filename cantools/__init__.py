@@ -1,9 +1,10 @@
-from __future__ import print_function
 import sys
 import argparse
+import importlib
 
 from . import tester
 from . import j1939
+from . import logreader
 from .errors import Error
 
 # Remove once less users are using the old package structure.
@@ -13,10 +14,43 @@ from .version import __version__
 
 __author__ = 'Erik Moqvist'
 
+class _ErrorSubparser:
+    def __init__(self, subparser_name, error_message):
+        self.subparser_name = subparser_name
+        self.error_message = error_message
+
+    def add_subparser(self, subparser_list):
+        err_parser = \
+            subparser_list.add_parser(self.subparser_name,
+                                      description = self.error_message)
+
+        err_parser.set_defaults(func=self._print_error)
+
+    def _print_error(self, args):
+        raise ImportError(self.error_message)
+
+def _load_subparser(subparser_name, subparsers):
+    """Load a subparser for a CLI command in a safe manner.
+
+    i.e., if the subparser cannot be loaded due to an import error or
+    similar, no exception is raised if another command was invoked on
+    the CLI."""
+
+    try:
+        result = importlib.import_module(f'.subparsers.{subparser_name}',
+                                         package='cantools')
+        result.add_subparser(subparsers)
+
+    except ImportError as e:
+        result = _ErrorSubparser(subparser_name,
+                                 f'Command "{subparser_name}" is unavailable: "{e}"')
+        result.add_subparser(subparsers)
 
 def _main():
     parser = argparse.ArgumentParser(
-        description='Various CAN utilities.')
+        description='Various CAN utilities.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
     parser.add_argument('-d', '--debug', action='store_true')
     parser.add_argument('--version',
@@ -29,19 +63,12 @@ def _main():
                                        dest='subcommand')
     subparsers.required = True
 
-    # Import when used for less dependencies. For example, curses is
-    # not part of all Python builds.
-    from .subparsers import decode
-    from .subparsers import monitor
-    from .subparsers import dump
-    from .subparsers import convert
-    from .subparsers import generate_c_source
-
-    decode.add_subparser(subparsers)
-    monitor.add_subparser(subparsers)
-    dump.add_subparser(subparsers)
-    convert.add_subparser(subparsers)
-    generate_c_source.add_subparser(subparsers)
+    _load_subparser('decode', subparsers)
+    _load_subparser('monitor', subparsers)
+    _load_subparser('dump', subparsers)
+    _load_subparser('convert', subparsers)
+    _load_subparser('generate_c_source', subparsers)
+    _load_subparser('plot', subparsers)
 
     args = parser.parse_args()
 

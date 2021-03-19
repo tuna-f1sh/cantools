@@ -1,5 +1,6 @@
-from __future__ import print_function
+import argparse
 import os
+import os.path
 
 from .. import database
 from ..database.can.c_source import generate
@@ -32,23 +33,33 @@ def _do_generate_c_source(args):
         not args.no_floating_point_numbers,
         args.bit_fields)
 
-    with open(filename_h, 'w') as fout:
+    os.makedirs(args.output_directory, exist_ok=True)
+    
+    path_h = os.path.join(args.output_directory, filename_h)
+    
+    with open(path_h, 'w') as fout:
         fout.write(header)
 
-    with open(filename_c, 'w') as fout:
+    path_c = os.path.join(args.output_directory, filename_c)
+
+    with open(path_c, 'w') as fout:
         fout.write(source)
 
-    print('Successfully generated {} and {}.'.format(filename_h, filename_c))
+    print('Successfully generated {} and {}.'.format(path_h, path_c))
 
     if args.generate_fuzzer:
-        with open(fuzzer_filename_c, 'w') as fout:
+        fuzzer_path_c = os.path.join(args.output_directory, fuzzer_filename_c)
+
+        with open(fuzzer_path_c, 'w') as fout:
             fout.write(fuzzer_source)
+
+        fuzzer_path_mk = os.path.join(args.output_directory, fuzzer_filename_mk)
 
         with open(fuzzer_filename_mk, 'w') as fout:
             fout.write(fuzzer_makefile)
 
-        print('Successfully generated {} and {}.'.format(fuzzer_filename_c,
-                                                         fuzzer_filename_mk))
+        print('Successfully generated {} and {}.'.format(fuzzer_path_c,
+                                                         fuzzer_path_mk))
         print()
         print(
             'Run "make -f {}" to build and run the fuzzer. Requires a'.format(
@@ -59,10 +70,12 @@ def _do_generate_c_source(args):
 def add_subparser(subparsers):
     generate_c_source_parser = subparsers.add_parser(
         'generate_c_source',
-        description='Generate C source code from given database file.')
+        description='Generate C source code from given database file.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     generate_c_source_parser.add_argument(
         '--database-name',
-        help='The database name (default: input file name).')
+        help=('The database name.  Uses the stem of the input file name if not'
+              ' specified.'))
     generate_c_source_parser.add_argument(
         '--no-floating-point-numbers',
         action='store_true',
@@ -82,6 +95,10 @@ def add_subparser(subparsers):
         '-f', '--generate-fuzzer',
         action='store_true',
         help='Also generate fuzzer source code.')
+    generate_c_source_parser.add_argument(
+        '-o', '--output-directory',
+        default='.',
+        help='Directory in which to write output files.')
     generate_c_source_parser.add_argument(
         'infile',
         help='Input database file.')

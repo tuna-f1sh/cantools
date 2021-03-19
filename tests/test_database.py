@@ -9,11 +9,6 @@ import textparser
 import os
 import re
 
-try:
-    from unittest.mock import patch
-except ImportError:
-    from mock import patch
-
 import logging
 from xml.etree import ElementTree
 import timeit
@@ -32,6 +27,15 @@ class CanToolsDatabaseTest(unittest.TestCase):
 
     maxDiff = None
 
+    def assert_dbc_dump(self, db, filename):
+        actual = db.as_dbc_string()
+        # open(filename, 'wb').write(actual.encode('cp1252'))
+
+        with open(filename, 'rb') as fin:
+            expected = fin.read().decode('cp1252')
+
+        self.assertEqual(actual, expected)
+
     def test_vehicle(self):
         filename = 'tests/files/dbc/vehicle.dbc'
         db = cantools.database.load_file(filename)
@@ -46,8 +50,8 @@ class CanToolsDatabaseTest(unittest.TestCase):
                          "message('RT_SB_INS_Vel_Body_Axes', 0x9588322, True, 8, None)")
         self.assertEqual(repr(db.messages[0].signals[0]),
                          "signal('Validity_INS_Vel_Forwards', 0, 1, 'little_endian', "
-                         "False, 0, 1, 0, 0, 1, 'None', False, None, None, 'Valid when "
-                         "bit is set, invalid when bit is clear.')")
+                         "False, 0, 1, 0, 0, 1, 'None', False, None, None, None, {None: 'Valid when "
+                         "bit is set, invalid when bit is clear.'})")
         self.assertEqual(db.messages[0].signals[0].initial, 0)
         self.assertEqual(db.messages[0].signals[0].receivers, [])
         self.assertEqual(db.messages[0].cycle_time, None)
@@ -61,13 +65,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
                     i += 1
 
         self.assertEqual(i, 15)
-
-        with open(filename, 'rb') as fin:
-            if sys.version_info[0] > 2:
-                self.assertEqual(db.as_dbc_string().encode('cp1252'),
-                                 fin.read())
-            else:
-                self.assertEqual(db.as_dbc_string(), fin.read())
+        self.assert_dbc_dump(db, filename)
 
     def test_dbc_signal_initial_value(self):
         filename = 'tests/files/dbc/vehicle.dbc'
@@ -80,32 +78,32 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(
             repr(signal),
             "signal('Validity_Accel_Longitudinal', 0, 1, 'little_endian', False, "
-            "None, 1, 0, None, None, 'None', False, None, None, 'Valid when bit is "
-            "set, invalid when bit is clear.')")
+            "None, 1, 0, None, None, 'None', False, None, None, None, {None: 'Valid when bit is "
+            "set, invalid when bit is clear.'})")
 
         signal = message.get_signal_by_name('Validity_Accel_Lateral')
-        self.assertEqual(signal.initial , 1)
+        self.assertEqual(signal.initial, 1)
 
         signal = message.get_signal_by_name('Validity_Accel_Vertical')
         self.assertEqual(signal.initial, 0)
 
         signal = message.get_signal_by_name('Accuracy_Accel')
-        self.assertEqual(signal.initial , 127)
+        self.assertEqual(signal.initial, 127)
 
         signal = message.get_signal_by_name('Accel_Longitudinal')
-        self.assertEqual(signal.initial , 32767)
+        self.assertEqual(signal.initial, 32767)
         self.assertEqual(
             repr(signal),
             "signal('Accel_Longitudinal', 16, 16, 'little_endian', True, 32767, "
-            "0.001, 0, -65, 65, 'g', False, None, None, 'Longitudinal "
+            "0.001, 0, -65, 65, 'g', False, None, None, None, {None: 'Longitudinal "
             "acceleration.  This is positive when the vehicle accelerates in a "
-            "forwards direction.')")
+            "forwards direction.'})")
 
         signal = message.get_signal_by_name('Accel_Lateral')
-        self.assertEqual(signal.initial , -30000)
+        self.assertEqual(signal.initial, -30000)
 
         signal = message.get_signal_by_name('Accel_Vertical')
-        self.assertEqual(signal.initial , 16120)
+        self.assertEqual(signal.initial, 16120)
 
     def test_motohawk(self):
         filename = 'tests/files/dbc/motohawk.dbc'
@@ -124,8 +122,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(db.messages[0].signals[2].receivers[1], 'FOO')
         self.assertEqual(db.messages[0].signals[1].receivers, [])
 
-        with open(filename, 'rb') as fin:
-            self.assertEqual(db.as_dbc_string().encode('ascii'), fin.read())
+        self.assert_dbc_dump(db, filename)
 
     def test_emc32(self):
         db = cantools.db.Database()
@@ -186,7 +183,6 @@ class CanToolsDatabaseTest(unittest.TestCase):
             "environment_variable('EMC_TrdPower', 1, -180, 400, 'deg', 0, 12,"
             " 'DUMMY_NODE_VECTOR0', 'Vector__XXX', 'Elevation Head')")
 
-
     def test_foobar(self):
         db = cantools.db.Database()
         db.add_dbc_file('tests/files/dbc/foobar.dbc')
@@ -202,31 +198,31 @@ class CanToolsDatabaseTest(unittest.TestCase):
             "node('FIE', None)\n"
             "node('FUM', None)\n"
             "\n"
-            "message('Foo', 0x12330, True, 8, 'Foo.')\n"
+            "message('Foo', 0x12330, True, 8, {None: 'Foo.'})\n"
             "  signal('Foo', 0, 12, 'big_endian', True, None, 0.01, "
-            "250, 229.53, 270.47, 'degK', False, None, None, None)\n"
+            "250, 229.53, 270.47, 'degK', False, None, None, None, None)\n"
             "  signal('Bar', 24, 32, 'big_endian', True, None, 0.1, "
-            "0, 0, 5, 'm', False, None, None, 'Bar.')\n"
+            "0, 0, 5, 'm', False, None, None, None, {None: 'Bar.'})\n"
             "\n"
             "message('Fum', 0x12331, True, 5, None)\n"
             "  signal('Fum', 0, 12, 'little_endian', True, None, 1, 0, 0, 10, "
-            "'None', False, None, None, None)\n"
+            "'None', False, None, None, None, None)\n"
             "  signal('Fam', 12, 12, 'little_endian', True, None, 1, 0, "
-            "0, 8, 'None', False, None, {1: \'Enabled\', 0: \'Disabled\'}, None)\n"
+            "0, 8, 'None', False, None, {1: \'Enabled\', 0: \'Disabled\'}, None, None)\n"
             "\n"
             "message('Bar', 0x12332, True, 4, None)\n"
             "  signal('Binary32', 0, 32, 'little_endian', True, None, 1, 0, None, "
-            "None, 'None', False, None, None, None)\n"
+            "None, 'None', False, None, None, None, None)\n"
             "\n"
             "message('CanFd', 0x12333, True, 64, None)\n"
             "  signal('Fie', 0, 64, 'little_endian', False, None, 1, 0, None, None, "
-            "'None', False, None, None, None)\n"
+            "'None', False, None, None, None, None)\n"
             "  signal('Fas', 64, 64, 'little_endian', False, None, 1, 0, None, None, "
-            "'None', False, None, None, None)\n"
+            "'None', False, None, None, None, None)\n"
             "\n"
             "message('FOOBAR', 0x30c, False, 8, None)\n"
             "  signal('ACC_02_CRC', 0, 12, 'little_endian', True, None, 1, 0, 0, 1, "
-            "'None', False, None, None, None)\n")
+            "'None', False, None, None, None, None)\n")
 
         self.assertEqual(len(db.buses), 1)
         self.assertEqual(db.buses[0].name, 'TheBusName')
@@ -243,7 +239,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(message.name, 'Bar')
         self.assertEqual(message.bus_name, 'TheBusName')
         self.assertEqual(message.senders, ['FOO', 'BAR'])
-        self.assertEqual(message.signals[0].receivers, [ 'FUM'])
+        self.assertEqual(message.signals[0].receivers, ['FUM'])
         self.assertEqual(message.signals[0].is_float, True)
         self.assertEqual(message.signals[0].length, 32)
 
@@ -295,6 +291,46 @@ class CanToolsDatabaseTest(unittest.TestCase):
             decoded = db.decode_message(name, encoded)
             self.assertEqual(decoded, decoded_message)
 
+    def test_foobar_encode_decode_frame_ids(self):
+        db = cantools.db.Database()
+        db.add_dbc_file('tests/files/dbc/foobar.dbc')
+
+        messages = [
+            (
+                0x12330,
+                {'Foo': 250, 'Bar': 0.0},
+                b'\x00\x00\x00\x00\x00\x00\x00\x00'
+            ),
+            (
+                0x12331,
+                {'Fum': 9, 'Fam': 5},
+                b'\x09\x50\x00\x00\x00'
+            ),
+            (
+                0x12332,
+                {'Binary32': 1.0},
+                b'\x00\x00\x80\x3f'
+            ),
+            (
+                0x12333,
+                {'Fie': 0x123456789abcdef, 'Fas': 0xdeadbeefdeadbeef},
+                b'\xef\xcd\xab\x89\x67\x45\x23\x01'
+                b'\xef\xbe\xad\xde\xef\xbe\xad\xde'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00'
+            )
+        ]
+
+        for frame_id, decoded_message, encoded_message in messages:
+            encoded = db.encode_message(frame_id, decoded_message)
+            self.assertEqual(encoded, encoded_message)
+            decoded = db.decode_message(frame_id, encoded)
+            self.assertEqual(decoded, decoded_message)
+
     def test_foobar_decode_masked_frame_id(self):
         db = cantools.db.Database(frame_id_mask=0xff)
         db.add_dbc_file('tests/files/dbc/foobar.dbc')
@@ -319,12 +355,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
                 'Table2': {},
                 'Table1': {0: 'Zero', 1: 'One'}
             })
-
-        with open(filename, 'rb') as fin:
-            if sys.version_info[0] > 2:
-                self.assertEqual(db.as_dbc_string().encode('utf-8'), fin.read())
-            else:
-                self.assertEqual(db.as_dbc_string(), fin.read())
+        self.assert_dbc_dump(db, filename)
 
     def test_dbc_load_empty_choice(self):
         filename = 'tests/files/dbc/empty_choice.dbc'
@@ -813,13 +844,12 @@ class CanToolsDatabaseTest(unittest.TestCase):
     def test_cp1252_dbc(self):
         db = cantools.database.load_file('tests/files/dbc/cp1252.dbc')
 
-        if sys.version_info[0] > 2:
-            self.assertEqual(
-                db.nodes[0].comment,
-                bytearray([
-                    v for v in range(256)
-                    if v not in [34, 129, 141, 143, 144, 157]
-                ])[32:].decode('cp1252'))
+        self.assertEqual(
+            db.nodes[0].comment,
+            bytearray([
+                v for v in range(256)
+                if v not in [34, 129, 141, 143, 144, 157]
+            ])[32:].decode('cp1252'))
 
     def test_the_homer(self):
         db = cantools.db.load_file('tests/files/kcd/the_homer.kcd')
@@ -1023,27 +1053,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
                              'OutsideTemp',
                              'SpeedKm',
                              'Handbrake'
-                         ])
-
-        self.assertEqual(
-            db.messages[1].signal_tree_string(),
-            '-- {root}\n'
-            '   +-- ABS_InfoMux\n'
-            '   |   +-- 0\n'
-            '   |   |   +-- Info0\n'
-            '   |   |   +-- Info1\n'
-            '   |   +-- 1\n'
-            '   |   |   +-- Info2\n'
-            '   |   |   +-- Info3\n'
-            '   |   +-- 2\n'
-            '   |   |   +-- Info4\n'
-            '   |   |   +-- Info5\n'
-            '   |   +-- 3\n'
-            '   |       +-- Info6\n'
-            '   |       +-- Info7\n'
-            '   +-- OutsideTemp\n'
-            '   +-- SpeedKm\n'
-            '   +-- Handbrake')
+        ])
 
         ambient_lux = db.messages[24].signals[0]
 
@@ -1166,7 +1176,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db.add_kcd_file('tests/files/kcd/the_homer.kcd')
 
         # Message 1 (binary64).
-        frame_id = 0x832
+        frame_id = 0x732
 
         decoded_message = {'AmbientLux': math.pi}
         encoded_message = b'\x18\x2d\x44\x54\xfb\x21\x09\x40'
@@ -1178,7 +1188,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(decoded, decoded_message)
 
         # Message 2 (binary32).
-        frame_id = 0x845
+        frame_id = 0x745
 
         decoded_message = {'Windshield': 3.1415927410125732}
         encoded_message = b'\xdb\x0f\x49\x40'
@@ -1193,18 +1203,18 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db = cantools.db.load_file('tests/files/kcd/the_homer.kcd')
 
         messages = [
-            (         {'EngagedGear': 'disengaged'}, b'\x00\x00'),
-            (                  {'EngagedGear': '1'}, b'\x00\x10'),
-            (                  {'EngagedGear': '2'}, b'\x00\x20'),
-            (                  {'EngagedGear': '3'}, b'\x00\x30'),
-            (                  {'EngagedGear': '4'}, b'\x00\x40'),
-            (                  {'EngagedGear': '5'}, b'\x00\x50'),
-            (                  {'EngagedGear': '6'}, b'\x00\x60'),
-            (                    {'EngagedGear': 7}, b'\x00\x70'),
-            (                    {'EngagedGear': 8}, b'\x00\x80'),
-            (                    {'EngagedGear': 9}, b'\x00\x90'),
-            (            {'EngagedGear': 'reverse'}, b'\x00\xa0'),
-            (   {'EngagedGear': 'Unspecific error'}, b'\x00\xf0')
+            ({'EngagedGear': 'disengaged'}, b'\x00\x00'),
+            ({'EngagedGear': '1'}, b'\x00\x10'),
+            ({'EngagedGear': '2'}, b'\x00\x20'),
+            ({'EngagedGear': '3'}, b'\x00\x30'),
+            ({'EngagedGear': '4'}, b'\x00\x40'),
+            ({'EngagedGear': '5'}, b'\x00\x50'),
+            ({'EngagedGear': '6'}, b'\x00\x60'),
+            ({'EngagedGear': 7}, b'\x00\x70'),
+            ({'EngagedGear': 8}, b'\x00\x80'),
+            ({'EngagedGear': 9}, b'\x00\x90'),
+            ({'EngagedGear': 'reverse'}, b'\x00\xa0'),
+            ({'EngagedGear': 'Unspecific error'}, b'\x00\xf0')
         ]
 
         for decoded_message, encoded_message in messages:
@@ -1222,22 +1232,22 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db = cantools.database.load_file('tests/files/kcd/the_homer.kcd')
 
         messages = [
-            (0x900, {'EnumTest': 'one'}, b'\x80\x00\x00\x00\x00\x00\x00\x00'),
-            (0x900, {'EnumTest': 'two'}, b'\xff\x00\x00\x00\x00\x00\x00\x00'),
-            (0x901, {'EnumTestFloat': 'one'}, b'\x00\x00\x00\x43\x00\x00\x00\x00'),
-            (0x901, {'EnumTestFloat': 'two'}, b'\x00\x00\x7f\x43\x00\x00\x00\x00'),
+            (0x700, {'EnumTest': 'one'}, b'\x80\x00\x00\x00\x00\x00\x00\x00'),
+            (0x700, {'EnumTest': 'two'}, b'\xff\x00\x00\x00\x00\x00\x00\x00'),
+            (0x701, {'EnumTestFloat': 'one'}, b'\x00\x00\x00\x43\x00\x00\x00\x00'),
+            (0x701, {'EnumTestFloat': 'two'}, b'\x00\x00\x7f\x43\x00\x00\x00\x00'),
 
             # Verify encode/decode using int/float to verify scaling
             # still works.
-            (0x900, {'EnumTest': 4}, b'\x02\x00\x00\x00\x00\x00\x00\x00'),
-            (0x901, {'EnumTestFloat': 4}, b'\x00\x00\x00\x40\x00\x00\x00\x00'),
-            (0x900, {'EnumTest': 4.0}, b'\x02\x00\x00\x00\x00\x00\x00\x00'),
-            (0x901, {'EnumTestFloat': 4.0}, b'\x00\x00\x00\x40\x00\x00\x00\x00')
+            (0x700, {'EnumTest': 4}, b'\x02\x00\x00\x00\x00\x00\x00\x00'),
+            (0x701, {'EnumTestFloat': 4}, b'\x00\x00\x00\x40\x00\x00\x00\x00'),
+            (0x700, {'EnumTest': 4.0}, b'\x02\x00\x00\x00\x00\x00\x00\x00'),
+            (0x701, {'EnumTestFloat': 4.0}, b'\x00\x00\x00\x40\x00\x00\x00\x00')
         ]
 
         for message_id, decoded_message, encoded_message in messages:
             encoded = db.encode_message(message_id, decoded_message)
-            self.assertEqual(encoded,encoded_message)
+            self.assertEqual(encoded, encoded_message)
             decoded = db.decode_message(message_id, encoded)
             self.assertEqual(decoded, decoded_message)
 
@@ -1918,9 +1928,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(signal_4.decimal.maximum, None)
         self.assertEqual(signal_4.unit, '][')
         self.assertEqual(signal_4.choices, None)
-
-        if sys.version_info[0] > 2:
-            self.assertEqual(signal_4.comment, 'ö')
+        self.assertEqual(signal_4.comment, 'ö')
 
         self.assertEqual(signal_4.is_multiplexer, False)
         self.assertEqual(signal_4.multiplexer_ids, None)
@@ -2016,8 +2024,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(message.cycle_time, 0)
         self.assertEqual(message.send_type, 'NoMsgSendType')
 
-        with open(filename, 'rb') as fin:
-            self.assertEqual(db.as_dbc_string().encode('ascii'), fin.read())
+        self.assert_dbc_dump(db, filename)
 
     def test_multiplex(self):
         db = cantools.db.load_file('tests/files/dbc/multiplex.dbc')
@@ -2043,33 +2050,6 @@ class CanToolsDatabaseTest(unittest.TestCase):
                                  }
                              }
                          ])
-
-        self.assertEqual(
-            message_1.signal_tree_string(),
-            '-- {root}\n'
-            '   +-- Multiplexor\n'
-            '       +-- 8\n'
-            '       |   +-- BIT_J\n'
-            '       |   +-- BIT_C\n'
-            '       |   +-- BIT_G\n'
-            '       |   +-- BIT_L\n'
-            '       +-- 16\n'
-            '       |   +-- BIT_J\n'
-            '       |   +-- BIT_C\n'
-            '       |   +-- BIT_G\n'
-            '       |   +-- BIT_L\n'
-            '       +-- 24\n'
-            '           +-- BIT_J\n'
-            '           +-- BIT_C\n'
-            '           +-- BIT_G\n'
-            '           +-- BIT_L\n'
-            '           +-- BIT_A\n'
-            '           +-- BIT_K\n'
-            '           +-- BIT_E\n'
-            '           +-- BIT_D\n'
-            '           +-- BIT_B\n'
-            '           +-- BIT_H\n'
-            '           +-- BIT_F')
 
         signal_multiplexor = message_1.signals[0]
         self.assertEqual(signal_multiplexor.is_multiplexer, True)
@@ -2115,6 +2095,8 @@ class CanToolsDatabaseTest(unittest.TestCase):
             decoded = message_1.decode(encoded)
             self.assertEqual(decoded, decoded_message)
 
+        self.assert_dbc_dump(db, 'tests/files/dbc/multiplex_dumped.dbc')
+
     def test_multiplex_choices(self):
         db = cantools.db.load_file('tests/files/dbc/multiplex_choices.dbc')
 
@@ -2145,19 +2127,6 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(encoded, encoded_message)
         decoded = message_1.decode(encoded, decode_choices=False)
         self.assertEqual(decoded, decoded_message)
-
-        self.assertEqual(
-            message_1.signal_choices_string(),
-            '\n'
-            'Multiplexor\n'
-            '    8 MULTIPLEXOR_8\n'
-            '    16 MULTIPLEXOR_16\n'
-            '    24 MULTIPLEXOR_24\n'
-            '\n'
-            'BIT_L\n'
-            '    0 Off\n'
-            '    1 On'
-        )
 
         # With Multiplexor as the only signal.
         decoded_message = {
@@ -2192,33 +2161,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
                              }
                          ])
 
-        self.assertEqual(
-            message_2.signal_tree_string(),
-            '-- {root}\n'
-            '   +-- Multiplexor\n'
-            '       +-- 4\n'
-            '       +-- 8\n'
-            '       |   +-- BIT_J\n'
-            '       |   +-- BIT_C\n'
-            '       |   +-- BIT_G\n'
-            '       |   +-- BIT_L\n'
-            '       +-- 16\n'
-            '       |   +-- BIT_J\n'
-            '       |   +-- BIT_C\n'
-            '       |   +-- BIT_G\n'
-            '       |   +-- BIT_L\n'
-            '       +-- 24\n'
-            '           +-- BIT_J\n'
-            '           +-- BIT_C\n'
-            '           +-- BIT_G\n'
-            '           +-- BIT_L\n'
-            '           +-- BIT_A\n'
-            '           +-- BIT_K\n'
-            '           +-- BIT_E\n'
-            '           +-- BIT_D\n'
-            '           +-- BIT_B\n'
-            '           +-- BIT_H\n'
-            '           +-- BIT_F')
+        self.assert_dbc_dump(db, 'tests/files/dbc/multiplex_choices_dumped.dbc')
 
     def test_multiplex_2(self):
         db = cantools.db.load_file('tests/files/dbc/multiplex_2.dbc')
@@ -2296,6 +2239,8 @@ class CanToolsDatabaseTest(unittest.TestCase):
                                  }
                              }
                          ])
+
+        self.assert_dbc_dump(db, 'tests/files/dbc/multiplex_2_dumped.dbc')
 
     def test_multiplex_extended(self):
         #            tree              |  bits
@@ -2391,25 +2336,6 @@ class CanToolsDatabaseTest(unittest.TestCase):
                                  }
                              }
                          ])
-
-        self.assertEqual(
-            message.signal_tree_string(),
-            '-- {root}\n'
-            '   +-- S0\n'
-            '   |   +-- 0\n'
-            '   |   |   +-- S1\n'
-            '   |   |       +-- 0\n'
-            '   |   |       |   +-- S2\n'
-            '   |   |       |   +-- S3\n'
-            '   |   |       +-- 2\n'
-            '   |   |           +-- S4\n'
-            '   |   +-- 1\n'
-            '   |       +-- S5\n'
-            '   +-- S6\n'
-            '       +-- 1\n'
-            '       |   +-- S7\n'
-            '       +-- 2\n'
-            '           +-- S8')
 
         # Encode and decode a few messages with different
         # multiplexing.
@@ -2563,19 +2489,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db = cantools.database.load_file('tests/files/dbc/cp1252.dbc',
                                          encoding='utf-8')
 
-        if sys.version_info[0] > 2:
-            replaced = 123 * b'\xef\xbf\xbd'.decode('utf-8')
-        else:
-            replaced = (
-                '\x80\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8e\x91'
-                '\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9e\x9f\xa0'
-                '\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae'
-                '\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc'
-                '\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca'
-                '\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8'
-                '\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6'
-                '\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4'
-                '\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff')
+        replaced = 123 * b'\xef\xbf\xbd'.decode('utf-8')
 
         self.assertEqual(
             db.nodes[0].comment,
@@ -2885,8 +2799,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(message.cycle_time, 1000)
         self.assertEqual(message.send_type, 'Cyclic')
 
-        with open(filename, 'rb') as fin:
-            self.assertEqual(db.as_dbc_string().encode('ascii'), fin.read())
+        self.assert_dbc_dump(db, filename)
 
     def test_big_numbers(self):
         filename = 'tests/files/dbc/big_numbers.dbc'
@@ -2941,6 +2854,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db.messages[0].signals[0].is_multiplexer = True
         db.messages[0].signals[0].multiplexer_signal = db.messages[0].signals[0]
         db.messages[0].signals[0].comment = 'TheNewComment'
+        db.messages[0].signals[0].spn = 500
 
     def test_refresh(self):
         with open('tests/files/dbc/attributes.dbc', 'r') as fin:
@@ -2952,7 +2866,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db.refresh()
         message = db.get_message_by_frame_id(0x40)
         self.assertEqual(message.name, 'TheMessage')
-        self.assertEqual(message.frame_id,0x40)
+        self.assertEqual(message.frame_id, 0x40)
 
         message.name = 'TheNewMessage'
         db.refresh()
@@ -3328,426 +3242,6 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(str(cm.exception),
                          'The signal S does not fit in message M.')
 
-    def test_message_layout(self):
-        db = cantools.database.load_file('tests/files/kcd/message_layout.kcd',
-                                         strict=False)
-
-        # Message 1.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B',
-            ' y',
-            ' t',
-            ' e'
-        ]
-
-        actual = db.get_message_by_name('Message1').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 2.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B   0 |<-----------------------------x|',
-            ' y     +---+---+---+---+---+---+---+---+',
-            ' t                                   +-- Signal1',
-            ' e'
-        ]
-
-        actual = db.get_message_by_name('Message2').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 3.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B   0 |   |   |   |   |   |   |   |<--|',
-            ' y     +---+---+---+---+---+---+---+---+',
-            ' t   1 |--x|   |   |   |   |   |   |   |',
-            ' e     +---+---+---+---+---+---+---+---+',
-            '         +-- Signal1',
-        ]
-
-        actual = db.get_message_by_name('Message3').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 4.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            '     0 |   |   |   |   |   |   |   |<--|',
-            ' B     +---+---+---+---+---+---+---+---+',
-            ' y   1 |--x|   |   |   |   |   |   |   |',
-            ' t     +---+---+---+---+---+---+---+---+',
-            ' e       +-- Signal1',
-            '       +---+---+---+---+---+---+---+---+',
-            '     2 |   |   |   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+'
-        ]
-
-        actual = db.get_message_by_name('Message4').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 5.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            '     0 |<---XXXXXXX-------x|XXX|   |   |',
-            '       +---+---+---+---+---+---+---+---+',
-            '                 |       |   +-- Signal7',
-            '                 |       |   +-- Signal8',
-            '                 |       +-- Signal1',
-            ' B               +-- Signal2',
-            ' y     +---+---+---+---+---+---+---+---+',
-            ' t   1 |   |   |   |   |   |<-x|XXXXXXX|',
-            ' e     +---+---+---+---+---+---+---+---+',
-            '                             |   +-- Signal4',
-            '                             +-- Signal6',
-            '       +---+---+---+---+---+---+---+---+',
-            '     2 |XXX---x|   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+',
-            '         |   +-- Signal5',
-            '         +-- Signal3'
-        ]
-
-        actual = db.get_message_by_name('Message5').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 6.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            '     0 |   |   |   |   |   |<----------|',
-            '       +---+---+---+---+---+---+---+---+',
-            '     1 |------x|   |   |   |   |<-x|   |',
-            '       +---+---+---+---+---+---+---+---+',
-            '             |                   +-- Signal2',
-            '             +-- Signal1',
-            '       +---+---+---+---+---+---+---+---+',
-            '     2 |   |   |   |   |   |   |   |   |',
-            ' B     +---+---+---+---+---+---+---+---+',
-            ' y   3 |--------------x|   |   |   |   |',
-            ' t     +---+---+---+---+---+---+---+---+',
-            ' e   4 |-------------------------------|',
-            '       +---+---+---+---+---+---+---+---+',
-            '     5 |   |   |<----------------------|',
-            '       +---+---+---+---+---+---+---+---+',
-            '                 +-- Signal3',
-            '       +---+---+---+---+---+---+---+---+',
-            '     6 |   |   |   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+',
-            '     7 |   |   |   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+'
-        ]
-
-        actual = db.get_message_by_name('Message6').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 7.
-        expected_lines = [
-            '                       Bit',
-            '',
-            '          7   6   5   4   3   2   1   0',
-            '        +---+---+---+---+---+---+---+---+',
-            '      0 |------------------------------x|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      1 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      2 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      3 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      4 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      5 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      6 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            ' B    7 |-------------------------------|',
-            ' y      +---+---+---+---+---+---+---+---+',
-            ' t    8 |-------------------------------|',
-            ' e      +---+---+---+---+---+---+---+---+',
-            '      9 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     10 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     11 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     12 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     13 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     14 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     15 |<------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '          +-- Signal1'
-        ]
-
-        actual = db.get_message_by_name('Message7').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 8.
-        expected_lines = [
-            '                       Bit',
-            '',
-            '          7   6   5   4   3   2   1   0',
-            '        +---+---+---+---+---+---+---+---+',
-            '      0 |<------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      1 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      2 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      3 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      4 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      5 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      6 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            ' B    7 |-------------------------------|',
-            ' y      +---+---+---+---+---+---+---+---+',
-            ' t    8 |-------------------------------|',
-            ' e      +---+---+---+---+---+---+---+---+',
-            '      9 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     10 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     11 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     12 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     13 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     14 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     15 |------------------------------x|',
-            '        +---+---+---+---+---+---+---+---+',
-            '                                      +-- Signal1'
-        ]
-
-        actual = db.get_message_by_name('Message8').layout_string()
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-    def test_message_layout_without_signal_names(self):
-        db = cantools.database.load_file('tests/files/kcd/message_layout.kcd',
-                                         strict=False)
-
-        # Message 1.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B',
-            ' y',
-            ' t',
-            ' e'
-        ]
-
-        message = db.get_message_by_name('Message1')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 2.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B   0 |<-----------------------------x|',
-            ' y     +---+---+---+---+---+---+---+---+',
-            ' t',
-            ' e'
-        ]
-
-        message = db.get_message_by_name('Message2')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 3.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B   0 |   |   |   |   |   |   |   |<--|',
-            ' y     +---+---+---+---+---+---+---+---+',
-            ' t   1 |--x|   |   |   |   |   |   |   |',
-            ' e     +---+---+---+---+---+---+---+---+'
-        ]
-
-        message = db.get_message_by_name('Message3')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 4.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B   0 |   |   |   |   |   |   |   |<--|',
-            ' y     +---+---+---+---+---+---+---+---+',
-            ' t   1 |--x|   |   |   |   |   |   |   |',
-            ' e     +---+---+---+---+---+---+---+---+',
-            '     2 |   |   |   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+'
-        ]
-
-        message = db.get_message_by_name('Message4')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 5.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            ' B   0 |<---XXXXXXX-------x|XXX|   |   |',
-            ' y     +---+---+---+---+---+---+---+---+',
-            ' t   1 |   |   |   |   |   |<-x|XXXXXXX|',
-            ' e     +---+---+---+---+---+---+---+---+',
-            '     2 |XXX---x|   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+'
-        ]
-
-        message = db.get_message_by_name('Message5')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 6.
-        expected_lines = [
-            '                      Bit',
-            '',
-            '         7   6   5   4   3   2   1   0',
-            '       +---+---+---+---+---+---+---+---+',
-            '     0 |   |   |   |   |   |<----------|',
-            '       +---+---+---+---+---+---+---+---+',
-            '     1 |------x|   |   |   |   |<-x|   |',
-            '       +---+---+---+---+---+---+---+---+',
-            '     2 |   |   |   |   |   |   |   |   |',
-            ' B     +---+---+---+---+---+---+---+---+',
-            ' y   3 |--------------x|   |   |   |   |',
-            ' t     +---+---+---+---+---+---+---+---+',
-            ' e   4 |-------------------------------|',
-            '       +---+---+---+---+---+---+---+---+',
-            '     5 |   |   |<----------------------|',
-            '       +---+---+---+---+---+---+---+---+',
-            '     6 |   |   |   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+',
-            '     7 |   |   |   |   |   |   |   |   |',
-            '       +---+---+---+---+---+---+---+---+'
-        ]
-
-        message = db.get_message_by_name('Message6')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 7.
-        expected_lines = [
-            '                       Bit',
-            '',
-            '          7   6   5   4   3   2   1   0',
-            '        +---+---+---+---+---+---+---+---+',
-            '      0 |------------------------------x|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      1 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      2 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      3 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      4 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      5 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      6 |-------------------------------|',
-            ' B      +---+---+---+---+---+---+---+---+',
-            ' y    7 |-------------------------------|',
-            ' t      +---+---+---+---+---+---+---+---+',
-            ' e    8 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      9 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     10 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     11 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     12 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     13 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     14 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     15 |<------------------------------|',
-            '        +---+---+---+---+---+---+---+---+'
-        ]
-
-        message = db.get_message_by_name('Message7')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
-        # Message 8.
-        expected_lines = [
-            '                       Bit',
-            '',
-            '          7   6   5   4   3   2   1   0',
-            '        +---+---+---+---+---+---+---+---+',
-            '      0 |<------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      1 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      2 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      3 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      4 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      5 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      6 |-------------------------------|',
-            ' B      +---+---+---+---+---+---+---+---+',
-            ' y    7 |-------------------------------|',
-            ' t      +---+---+---+---+---+---+---+---+',
-            ' e    8 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '      9 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     10 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     11 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     12 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     13 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     14 |-------------------------------|',
-            '        +---+---+---+---+---+---+---+---+',
-            '     15 |------------------------------x|',
-            '        +---+---+---+---+---+---+---+---+'
-        ]
-
-        message = db.get_message_by_name('Message8')
-        actual = message.layout_string(signal_names=False)
-        self.assertEqual(actual, '\n'.join(expected_lines))
-
     def test_add_two_dbc_files(self):
         """Test adding two DBC-files to the same database.
 
@@ -3812,47 +3306,18 @@ class CanToolsDatabaseTest(unittest.TestCase):
             'The signals HtrRes and MaxRes are overlapping in message '
             'AFT1PSI2.')
 
-        db = cantools.database.load_file(filename, strict=False)
-        self.assertEqual(
-            db.messages[0].layout_string(),
-            '                      Bit\n'
-            '\n'
-            '         7   6   5   4   3   2   1   0\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '     0 |   |   |<-----x|<-------------x|\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '                 |       +-- DetectionStatus\n'
-            '                 +-- PwrSupply\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '     1 |<-----------------------------x|\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '         +-- RegenFailedCount\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '     2 |------------------------------x|\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            ' B   3 |<------------------------------|\n'
-            ' y     +---+---+---+---+---+---+---+---+\n'
-            ' t       +-- Temp\n'
-            ' e     +---+---+---+---+---+---+---+---+\n'
-            '     4 |------------------------------x|\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '     5 |XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '         +-- MaxRes\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '     6 |<------------------------------|\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '         +-- HtrRes\n'
-            '       +---+---+---+---+---+---+---+---+\n'
-            '     7 |   |   |   |   |   |   |   |   |\n'
-            '       +---+---+---+---+---+---+---+---+')
-
     def test_j1939_dbc(self):
         db = cantools.database.load_file('tests/files/dbc/j1939.dbc')
 
         self.assertEqual(db.messages[0].name, 'Message1')
         self.assertEqual(db.messages[0].frame_id, 0x15340201)
         self.assertEqual(db.messages[0].protocol, 'j1939')
+
+        signal = db.messages[0].signals[0]
+        self.assertEqual(signal.spn, 500)
+
+        signal = db.messages[1].signals[0]
+        self.assertEqual(signal.spn, None)
 
     def test_j1939_frame_id_pack_unpack(self):
         Data = namedtuple('Data',
@@ -4096,8 +3561,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         decoded = message.decode(encoded)
         self.assertEqual(decoded, decoded_message)
 
-        with open(filename, 'rb') as fin:
-            self.assertEqual(db.as_dbc_string().encode('ascii'), fin.read())
+        self.assert_dbc_dump(db, filename)
 
     def test_signed_dbc(self):
         db = cantools.database.load_file('tests/files/dbc/signed.dbc')
@@ -4216,12 +3680,182 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertFalse('E12345678901234567890123456_0000' in envvar_names)
         self.assertTrue('E12345678901234567890123456789012' in envvar_names)
 
-    def test_system_arxml(self):
+    def test_illegal_namespace(self):
+        with self.assertRaises(UnsupportedDatabaseFormatError) as cm:
+            db = cantools.db.load_file('tests/files/arxml/system-illegal-namespace-4.2.arxml')
+
+        self.assertEqual(
+            str(cm.exception),
+            'ARXML: "Unrecognized XML namespace \'http://autosar.org/schema/argh4.2.1\'"')
+
+        root = ElementTree.parse('tests/files/arxml/system-illegal-namespace-4.2.arxml').getroot()
+        with self.assertRaises(ValueError) as cm:
+            loader = cantools.db.can.formats.arxml.SystemLoader(root, strict=False)
+
+        self.assertEqual(
+            str(cm.exception),
+            'Unrecognized AUTOSAR XML namespace \'http://autosar.org/schema/argh4.2.1\'')
+
+    def test_illegal_root(self):
+        with self.assertRaises(UnsupportedDatabaseFormatError) as cm:
+            db = cantools.db.load_file('tests/files/arxml/system-illegal-root-4.2.arxml')
+
+        self.assertEqual(
+            str(cm.exception),
+            'ARXML: "No XML namespace specified or illegal root tag name \'{http://autosar.org/schema/r4.2.1}AUTOSARGH\'"')
+
+        root = ElementTree.parse('tests/files/arxml/system-illegal-root-4.2.arxml').getroot()
+        with self.assertRaises(ValueError) as cm:
+            loader = cantools.db.can.formats.arxml.SystemLoader(root, strict=False)
+
+        self.assertEqual(
+            str(cm.exception),
+            'No XML namespace specified or illegal root tag name \'{http://autosar.org/schema/r4.2.1}AUTOSARGH\'')
+
+    def test_illegal_version(self):
+        with self.assertRaises(UnsupportedDatabaseFormatError) as cm:
+            db = cantools.db.load_file('tests/files/arxml/system-illegal-version-4.2.2.1.0.arxml')
+
+        self.assertEqual(
+            str(cm.exception),
+            'ARXML: "Could not parse AUTOSAR version \'4.2.2.1.0\'"')
+
+    def test_arxml_version(self):
+        root = ElementTree.parse('tests/files/arxml/system-4.2.arxml').getroot()
+        loader = cantools.db.can.formats.arxml.SystemLoader(root, strict=False)
+
+        self.assertEqual(loader.autosar_version_newer(3), True)
+        self.assertEqual(loader.autosar_version_newer(4), True)
+        self.assertEqual(loader.autosar_version_newer(5), False)
+
+        self.assertEqual(loader.autosar_version_newer(4, 1), True)
+        self.assertEqual(loader.autosar_version_newer(4, 2), True)
+        self.assertEqual(loader.autosar_version_newer(4, 3), False)
+
+        self.assertEqual(loader.autosar_version_newer(4, 2, 0), True)
+        self.assertEqual(loader.autosar_version_newer(4, 2, 1), True)
+        self.assertEqual(loader.autosar_version_newer(4, 2, 2), False)
+
+    def test_DAI_namespace(self):
+        db = cantools.db.load_file('tests/files/arxml/system-DAI-3.1.2.arxml')
+
+    def test_system_3_arxml(self):
+        db = cantools.db.load_file('tests/files/arxml/system-3.2.3.arxml')
+
+        self.assertEqual(len(db.nodes), 0)
+
+        self.assertEqual(len(db.messages), 1)
+
+        message_1 = db.messages[0]
+        self.assertEqual(message_1.frame_id, 123)
+        self.assertEqual(message_1.is_extended_frame, False)
+        self.assertEqual(message_1.name, 'Status')
+        self.assertEqual(message_1.length, 1)
+        self.assertEqual(message_1.senders, [])
+        self.assertEqual(message_1.send_type, None)
+        self.assertEqual(message_1.cycle_time, 500)
+        self.assertEqual(len(message_1.signals), 4)
+        self.assertEqual(message_1.comments["EN"], 'The lonely frame description')
+        self.assertEqual(message_1.bus_name, None)
+
+        signal_1 = message_1.signals[0]
+        self.assertEqual(signal_1.name, 'Alive')
+        self.assertEqual(signal_1.start, 0)
+        self.assertEqual(signal_1.length, 1)
+        self.assertEqual(signal_1.receivers, [])
+        self.assertEqual(signal_1.byte_order, 'little_endian')
+        self.assertEqual(signal_1.initial, False)
+        self.assertEqual(signal_1.is_signed, False)
+        self.assertEqual(signal_1.is_float, False)
+        self.assertEqual(signal_1.scale, 1.0)
+        self.assertEqual(signal_1.offset, 0.0)
+        self.assertEqual(signal_1.minimum, None)
+        self.assertEqual(signal_1.maximum, None)
+        self.assertEqual(signal_1.decimal.scale, Decimal('1'))
+        self.assertEqual(signal_1.decimal.offset, 0.0)
+        self.assertEqual(signal_1.decimal.minimum, None)
+        self.assertEqual(signal_1.decimal.maximum, None)
+        self.assertEqual(signal_1.unit, None)
+        self.assertEqual(signal_1.choices, None)
+        self.assertEqual(signal_1.comments, {'DE': 'Lebt', 'EN': 'Is alive'})
+        self.assertEqual(signal_1.is_multiplexer, False)
+        self.assertEqual(signal_1.multiplexer_ids, None)
+
+        signal_2 = message_1.signals[1]
+        self.assertEqual(signal_2.name, 'Sleeps')
+        self.assertEqual(signal_2.start, 1)
+        self.assertEqual(signal_2.length, 1)
+        self.assertEqual(signal_2.receivers, [])
+        self.assertEqual(signal_2.byte_order, 'little_endian')
+        self.assertEqual(signal_2.initial, True)
+        self.assertEqual(signal_2.is_signed, False)
+        self.assertEqual(signal_2.is_float, False)
+        self.assertEqual(signal_2.scale, 1.0)
+        self.assertEqual(signal_2.offset, 0.0)
+        self.assertEqual(signal_2.minimum, None)
+        self.assertEqual(signal_2.maximum, None)
+        self.assertEqual(signal_2.decimal.scale, Decimal('1'))
+        self.assertEqual(signal_2.decimal.offset, 0.0)
+        self.assertEqual(signal_2.decimal.minimum, None)
+        self.assertEqual(signal_2.decimal.maximum, None)
+        self.assertEqual(signal_2.unit, None)
+        self.assertEqual(signal_2.choices, None)
+        self.assertEqual(signal_2.comments, None)
+        self.assertEqual(signal_2.is_multiplexer, False)
+        self.assertEqual(signal_2.multiplexer_ids, None)
+
+        signal_3 = message_1.signals[2]
+        self.assertEqual(signal_3.name, 'Position')
+        self.assertEqual(signal_3.start, 3)
+        self.assertEqual(signal_3.length, 2)
+        self.assertEqual(signal_3.receivers, [])
+        self.assertEqual(signal_3.byte_order, 'little_endian')
+        self.assertEqual(signal_3.is_signed, False)
+        self.assertEqual(signal_3.is_float, False)
+        self.assertEqual(signal_3.scale, 1.0)
+        self.assertEqual(signal_3.offset, 0.0)
+        self.assertEqual(signal_3.minimum, 0)
+        self.assertEqual(signal_3.maximum, 2)
+        self.assertEqual(signal_3.decimal.scale, 1.0)
+        self.assertEqual(signal_3.decimal.offset, 0.0)
+        self.assertEqual(signal_3.decimal.minimum, 0)
+        self.assertEqual(signal_3.decimal.maximum, 2)
+        self.assertEqual(signal_3.unit, None)
+        self.assertEqual(signal_3.choices, { 0: 'STANDARD_POSITION',
+                                             1: 'FORWARD_POSITION',
+                                             2: 'BACKWARD_POSITION'})
+        self.assertEqual(signal_3.comments, None)
+        self.assertEqual(signal_3.is_multiplexer, False)
+        self.assertEqual(signal_3.multiplexer_ids, None)
+
+        signal_4 = message_1.signals[3]
+        self.assertEqual(signal_4.name, 'Movement')
+        self.assertEqual(signal_4.start, 5)
+        self.assertEqual(signal_4.length, 3)
+        self.assertEqual(signal_4.receivers, [])
+        self.assertEqual(signal_4.byte_order, 'little_endian')
+        self.assertEqual(signal_4.is_signed, False)
+        self.assertEqual(signal_4.is_float, False)
+        self.assertEqual(signal_4.scale, 10.0/4)
+        self.assertEqual(signal_4.offset, 40.0/4)
+        self.assertEqual(signal_4.minimum, 0)
+        self.assertEqual(signal_4.maximum, 3)
+        self.assertEqual(signal_4.decimal.scale, 10.0/4)
+        self.assertEqual(signal_4.decimal.offset, 40.0/4)
+        self.assertEqual(signal_4.decimal.minimum, 0)
+        self.assertEqual(signal_4.decimal.maximum, 3)
+        self.assertEqual(signal_4.unit, None)
+        self.assertEqual(signal_4.choices, None)
+        self.assertEqual(signal_4.comment, 'Lonely system signal comment')
+        self.assertEqual(signal_4.is_multiplexer, False)
+        self.assertEqual(signal_4.multiplexer_ids, None)
+
+    def test_system_4_arxml(self):
         db = cantools.db.load_file('tests/files/arxml/system-4.2.arxml')
 
         self.assertEqual(len(db.nodes), 0)
 
-        self.assertEqual(len(db.messages), 3)
+        self.assertEqual(len(db.messages), 4)
 
         message_1 = db.messages[0]
         self.assertEqual(message_1.frame_id, 5)
@@ -4232,13 +3866,22 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(message_1.send_type, None)
         self.assertEqual(message_1.cycle_time, None)
         self.assertEqual(len(message_1.signals), 3)
-        self.assertEqual(message_1.comment, 'Comment1')
+        self.assertEqual(message_1.comments["DE"], 'Kommentar1')
+        self.assertEqual(message_1.comments["EN"], 'Comment1')
         self.assertEqual(message_1.bus_name, None)
+        self.assertEqual(message_1.comment, 'Comment1')
+        message_1.comments = {'DE': 'Kommentar eins', 'EN': 'Comment one'}
+        self.assertEqual(message_1.comments,
+                         {
+                             'DE': 'Kommentar eins',
+                             'EN': 'Comment one'
+                         })
 
         signal_1 = message_1.signals[0]
-        self.assertEqual(signal_1.name, 'Signal6')
+        self.assertEqual(signal_1.name, 'signal6')
         self.assertEqual(signal_1.start, 0)
         self.assertEqual(signal_1.length, 1)
+        self.assertEqual(signal_1.initial, False)
         self.assertEqual(signal_1.receivers, [])
         self.assertEqual(signal_1.byte_order, 'little_endian')
         self.assertEqual(signal_1.is_signed, False)
@@ -4251,16 +3894,17 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(signal_1.decimal.offset, 0.0)
         self.assertEqual(signal_1.decimal.minimum, 0)
         self.assertEqual(signal_1.decimal.maximum, 1)
-        self.assertEqual(signal_1.unit, None)
-        self.assertEqual(signal_1.choices, {'zero': 0})
+        self.assertEqual(signal_1.unit, "wp")
+        self.assertEqual(signal_1.choices, {0: 'zero'})
         self.assertEqual(signal_1.comment, None)
         self.assertEqual(signal_1.is_multiplexer, False)
         self.assertEqual(signal_1.multiplexer_ids, None)
 
         signal_2 = message_1.signals[1]
-        self.assertEqual(signal_2.name, 'Signal1')
+        self.assertEqual(signal_2.name, 'signal1')
         self.assertEqual(signal_2.start, 4)
         self.assertEqual(signal_2.length, 3)
+        self.assertEqual(signal_2.initial, 5)
         self.assertEqual(signal_2.receivers, [])
         self.assertEqual(signal_2.byte_order, 'big_endian')
         self.assertEqual(signal_2.is_signed, False)
@@ -4275,13 +3919,23 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(signal_2.decimal.maximum, 4.0)
         self.assertEqual(signal_2.unit, 'm')
         self.assertEqual(signal_2.choices, None)
-        self.assertEqual(signal_2.comment, None)
+        self.assertEqual(signal_2.comments["EN"], 'Signal comment!')
+        self.assertEqual(signal_2.comments["DE"], 'Signalkommentar!')
+        self.assertEqual(signal_2.comment, 'Signal comment!')
+        signal_2.comments = {'DE': 'Kein Kommentar!', 'EN': 'No comment!'}
+        self.assertEqual(signal_2.comments,
+                         {
+                             'DE': 'Kein Kommentar!',
+                             'EN': 'No comment!'
+                         })
+
         self.assertEqual(signal_2.is_multiplexer, False)
         self.assertEqual(signal_2.multiplexer_ids, None)
 
         signal_3 = message_1.signals[2]
-        self.assertEqual(signal_3.name, 'Signal5')
+        self.assertEqual(signal_3.name, 'signal5')
         self.assertEqual(signal_3.start, 16)
+        self.assertEqual(signal_3.initial, None)
         self.assertEqual(signal_3.length, 32)
         self.assertEqual(signal_3.receivers, [])
         self.assertEqual(signal_3.byte_order, 'little_endian')
@@ -4314,7 +3968,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(message_2.bus_name, None)
 
         signal_1 = message_2.signals[0]
-        self.assertEqual(signal_1.name, 'Signal3')
+        self.assertEqual(signal_1.name, 'signal3')
         self.assertEqual(signal_1.start, 6)
         self.assertEqual(signal_1.length, 2)
         self.assertEqual(signal_1.receivers, [])
@@ -4336,7 +3990,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(signal_1.multiplexer_ids, None)
 
         signal_2 = message_2.signals[1]
-        self.assertEqual(signal_2.name, 'Signal2')
+        self.assertEqual(signal_2.name, 'signal2')
         self.assertEqual(signal_2.start, 18)
         self.assertEqual(signal_2.length, 11)
         self.assertEqual(signal_2.receivers, [])
@@ -4353,12 +4007,12 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(signal_2.decimal.maximum, None)
         self.assertEqual(signal_2.unit, None)
         self.assertEqual(signal_2.choices, None)
-        self.assertEqual(signal_2.comment, 'Signal comment!')
+        self.assertEqual(signal_2.comments["FOR-ALL"], 'Signal comment!')
         self.assertEqual(signal_2.is_multiplexer, False)
         self.assertEqual(signal_2.multiplexer_ids, None)
 
         signal_3 = message_2.signals[2]
-        self.assertEqual(signal_3.name, 'Signal4')
+        self.assertEqual(signal_3.name, 'signal4')
         self.assertEqual(signal_3.start, 30)
         self.assertEqual(signal_3.length, 4)
         self.assertEqual(signal_3.receivers, [])
@@ -4374,7 +4028,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(signal_3.decimal.minimum, 0)
         self.assertEqual(signal_3.decimal.maximum, 3)
         self.assertEqual(signal_3.unit, None)
-        self.assertEqual(signal_3.choices, {'one': 1, 'two': 2})
+        self.assertEqual(signal_3.choices, {1: 'one', 2: 'two'})
         self.assertEqual(signal_3.comment, None)
         self.assertEqual(signal_3.is_multiplexer, False)
         self.assertEqual(signal_3.multiplexer_ids, None)
@@ -4390,6 +4044,83 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(len(message_3.signals), 0)
         self.assertEqual(message_3.comment, None)
         self.assertEqual(message_3.bus_name, None)
+
+        # message 4 tests different base encodings
+        message_4 = db.messages[3]
+        self.assertEqual(message_4.frame_id, 101)
+        self.assertEqual(message_4.is_extended_frame, False)
+        self.assertEqual(message_4.name, 'Message4')
+        self.assertEqual(message_4.length, 6)
+        self.assertEqual(message_4.senders, [])
+        self.assertEqual(message_4.send_type, None)
+        self.assertEqual(message_4.cycle_time, None)
+        self.assertEqual(len(message_4.signals), 3)
+        self.assertEqual(message_4.comment, None)
+        self.assertEqual(message_4.bus_name, None)
+
+        signal_2 = message_4.signals[0]
+        self.assertEqual(signal_2.name, 'signal2')
+        self.assertEqual(signal_2.is_signed, True)
+        self.assertEqual(signal_2.is_float, False)
+
+        signal_2_1c = message_4.signals[1]
+        self.assertEqual(signal_2_1c.name, 'signal2_1c')
+        self.assertEqual(signal_2_1c.is_signed, True)
+        self.assertEqual(signal_2_1c.is_float, False)
+
+        signal_2_sm = message_4.signals[2]
+        self.assertEqual(signal_2_sm.name, 'signal2_sm')
+        self.assertEqual(signal_2_sm.is_signed, True)
+        self.assertEqual(signal_2_sm.is_float, False)
+
+    def test_system_arxml_traversal(self):
+        with self.assertRaises(UnsupportedDatabaseFormatError) as cm:
+            cantools.db.load_file(
+                'tests/files/arxml/system-dangling-reference-4.2.arxml')
+        self.assertEqual(str(cm.exception),
+                         "ARXML: \"Encountered dangling reference FRAME-REF: /PackageDoesNotExist/Message1\"")
+
+        root = ElementTree.parse('tests/files/arxml/system-4.2.arxml').getroot()
+        loader = cantools.db.can.formats.arxml.SystemLoader(root, strict=True)
+
+        # a base node must always be specified
+        with self.assertRaises(ValueError) as cm:
+            no_base_elem = loader._get_arxml_children(None, ["AR-PACKAGES", "*AR-PACKAGE"])
+        self.assertEqual(str(cm.exception), "Cannot retrieve a child element of a non-existing node!")
+
+        # test multiple child node matches
+        children1 = loader._get_arxml_children(loader._root, ["AR-PACKAGES", "*AR-PACKAGE"])
+        childen1_short_names = \
+            list(map(lambda x: x.find("ns:SHORT-NAME", loader._xml_namespaces).text, children1))
+
+        self.assertEqual(childen1_short_names,
+                         [
+                             'Cluster',
+                             'CanFrame',
+                             'ISignal',
+                             'Constants',
+                             'ISignalIPdu',
+                             'Unit',
+                             'CompuMethod',
+                             'SystemSignal',
+                             'SwBaseType'
+                         ])
+
+        # test unique location specifier if child nodes exist
+        with self.assertRaises(ValueError) as cm:
+            non_unique = loader._get_arxml_children(loader._root, ["AR-PACKAGES", "AR-PACKAGE"])
+        self.assertEqual(str(cm.exception),
+                         "Encountered a a non-unique child node of type AR-PACKAGE which ought to be unique")
+
+        # test the reference cache
+        foo = loader._follow_arxml_reference(loader._root, "/CanFrame/Message1", "CAN-FRAME")
+        bar = loader._follow_arxml_reference(loader._root, "/CanFrame/Message1", "CAN-FRAME")
+        self.assertEqual(foo, bar)
+
+        # test non-unique location while assuming that it is unique
+        with self.assertRaises(ValueError) as cm:
+            no_base_elem = loader._get_unique_arxml_child(loader._root, ["AR-PACKAGES", "*AR-PACKAGE"])
+        self.assertEqual(str(cm.exception), "['AR-PACKAGES', '*AR-PACKAGE'] does not resolve into a unique node")
 
     def test_system_missing_factor_arxml(self):
         with self.assertRaises(UnsupportedDatabaseFormatError) as cm:
@@ -4430,8 +4161,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
 
         self.assertEqual(
             str(cm.exception),
-            'ARXML: "Expected root element tag {http://autosar.org/schema/r4.0}'
-            'AUTOSAR, but got {http://autosar.org/schema/r4.0}NOT-AUTOSAR."')
+            'ARXML: "No XML namespace specified or illegal root tag name \'{http://autosar.org/schema/r4.0}NOT-AUTOSAR\'"')
 
     def test_ecu_extract_arxml(self):
         db = cantools.database.Database()
@@ -4617,13 +4347,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db = cantools.database.load_file(filename)
         message = db.get_message_by_frame_id(1)
         self.assertEqual(message.senders, ['FOO', 'BAR', 'FIE'])
-
-        with open(filename, 'rb') as fin:
-            if sys.version_info[0] > 2:
-                self.assertEqual(db.as_dbc_string().encode('cp1252'),
-                                 fin.read())
-            else:
-                self.assertEqual(db.as_dbc_string(), fin.read())
+        self.assert_dbc_dump(db, filename)
 
     def test_issue_168_upper_case_file_extension(self):
         filename = 'tests/files/dbc/issue_168.DBC'
@@ -4633,9 +4357,6 @@ class CanToolsDatabaseTest(unittest.TestCase):
         self.assertEqual(message.name, 'Foo')
 
     def test_issue_163_dbc_newlines(self):
-        if sys.version_info[0] < 3:
-            return
-
         filename_in = 'tests/files/dbc/issue_163_newline.dbc'
         filename_dump = 'issue_163_newline_dump.dbc'
 
@@ -4713,13 +4434,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         filename = 'tests/files/dbc/long_names_multiple_relations.dbc'
         filename_dumped = 'tests/files/dbc/long_names_multiple_relations_dumped.dbc'
         db = cantools.database.load_file(filename)
-
-        with open(filename_dumped, 'rb') as fin:
-            if sys.version_info[0] > 2:
-                self.assertEqual(db.as_dbc_string().encode('cp1252'),
-                                 fin.read())
-            else:
-                self.assertEqual(db.as_dbc_string(), fin.read())
+        self.assert_dbc_dump(db, filename_dumped)
 
     def test_database_version(self):
         # default value if db created from scratch (map None to ''):
@@ -4731,7 +4446,7 @@ class CanToolsDatabaseTest(unittest.TestCase):
         my_version = "my_version"
         db.version = my_version
         self.assertTrue(db.as_dbc_string().startswith('VERSION "{}"'.
-                        format(my_version)))
+                                                      format(my_version)))
 
     def test_dbc_modify_names(self):
         """Test that modified object names are dumped correctly to dbc.
@@ -4750,11 +4465,177 @@ class CanToolsDatabaseTest(unittest.TestCase):
         db.nodes[0].name = 'node_now_short'
         db.refresh()
 
-        with open(filename_dest, 'rb') as fin:
-            if sys.version_info[0] > 2:
-                self.assertEqual(db.as_dbc_string().encode('cp1252'), fin.read())
-            else:
-                self.assertEqual(db.as_dbc_string(), fin.read())
+        self.assert_dbc_dump(db, filename_dest)
+
+    def test_dbc_with_signal_groups(self):
+        """Test that signal groups can be loaded and dumped.
+
+        """
+
+        # Read and dump.
+        filename = 'tests/files/dbc/sig_groups.dbc'
+        db = cantools.database.load_file(filename)
+
+        message = db.get_message_by_name('SGMsg_m')
+        self.assertEqual(len(message.signal_groups), 2)
+
+        signal_group = message.signal_groups[0]
+        self.assertEqual(signal_group.name, 'Sub2')
+        self.assertEqual(signal_group.repetitions, 1)
+        self.assertEqual(signal_group.signal_names, ['dupsig', 'subSig2_1'])
+
+        signal_group = message.signal_groups[1]
+        self.assertEqual(signal_group.name, 'sub1')
+        self.assertEqual(signal_group.repetitions, 1)
+        self.assertEqual(signal_group.signal_names,
+                         ['dupsig', 'subSig1_2', 'subSig1_1'])
+
+        self.assert_dbc_dump(db, filename)
+
+        # Delete all signal groups.
+        for message in db.messages:
+            message.signal_groups = None
+
+        filename = 'tests/files/dbc/sig_groups_del.dbc'
+        self.assert_dbc_dump(db, filename)
+
+        # Add one signal group to each message with all its signals.
+        for message in db.messages[:-1]:
+            message.signal_groups = [
+                cantools.database.can.signal_group.SignalGroup(
+                    message.name,
+                    signal_names=[signal.name for signal in message.signals])
+            ]
+
+        # Create the last signal group with default values and update
+        # it by changing its attributes.
+        message = db.messages[-1]
+        signal_group = cantools.database.can.signal_group.SignalGroup(
+            'New_Signal_Group')
+        signal_group.name = message.name
+        signal_group.repetitions = 1
+        signal_group.signal_names = [signal.name for signal in message.signals]
+        message.signal_groups = [signal_group]
+
+        filename = 'tests/files/dbc/sig_groups_out.dbc'
+        self.assert_dbc_dump(db, filename)
+
+    def test_dbc_issue_228_empty_signal_groups(self):
+        filename = 'tests/files/dbc/issue_228.dbc'
+
+        db = cantools.database.load_file(filename)
+        message = db.get_message_by_name('SGMsg')
+        signal_group = message.signal_groups[0]
+        self.assertEqual(signal_group.name, 'Empty_Signal_Group')
+        self.assertEqual(signal_group.repetitions, 1)
+        self.assertEqual(signal_group.signal_names, [])
+
+    def test_dbc_issue_199_more_than_11_bits_standard_frame_id(self):
+        filename = 'tests/files/dbc/issue_199.dbc'
+
+        with self.assertRaises(cantools.database.errors.Error) as cm:
+            cantools.database.load_file(filename)
+
+        self.assertEqual(
+            str(cm.exception),
+            'Standard frame id 0x10630000 is more than 11 bits in message '
+            'DriverDoorStatus.')
+
+    def test_dbc_issue_199_more_than_29_bits_extended_frame_id(self):
+        filename = 'tests/files/dbc/issue_199_extended.dbc'
+
+        with self.assertRaises(cantools.database.errors.Error) as cm:
+            cantools.database.load_file(filename)
+
+        self.assertEqual(
+            str(cm.exception),
+            'Extended frame id 0x7fffffff is more than 29 bits in message '
+            'DriverDoorStatus.')
+
+    def test_issue_207_tolerate_plus_in_dbc_sig_def(self):
+        db = cantools.database.load_file('tests/files/dbc/issue_207_sig_plus.dbc')
+        message = db.messages[0]
+
+        for signal in message.signals:
+            self.assertEqual(signal.minimum, -128)
+            self.assertEqual(signal.maximum, 127)
+
+    def test_issue_184_multiple_mux_values(self):
+        db = cantools.database.load_file(
+            'tests/files/dbc/issue_184_extended_mux_multiple_values.dbc')
+
+        self.assertEqual(db.messages[0].signal_tree,
+                         [
+                             {
+                                 'MUX': {
+                                     0: ['muxed_0_3_4_5'],
+                                     1: ['muxed_1'],
+                                     2: ['muxed_2'],
+                                     3: ['muxed_0_3_4_5'],
+                                     4: ['muxed_0_3_4_5'],
+                                     5: ['muxed_0_3_4_5']
+                                 }
+                             }
+        ])
+
+        self.assert_dbc_dump(
+            db,
+            'tests/files/dbc/issue_184_extended_mux_multiple_values_dumped.dbc')
+
+    def test_issue_184_independent_multiplexors(self):
+        db = cantools.database.load_file(
+            'tests/files/dbc/issue_184_extended_mux_independent_multiplexors.dbc')
+
+        self.assertEqual(db.messages[0].signal_tree,
+                         [
+                             {
+                                 'MUX_A': {
+                                     0: ['muxed_A_0'],
+                                     1: ['muxed_A_1']
+                                 }
+                             },
+                             {
+                                 'MUX_B': {
+                                     1: ['muxed_B_1'],
+                                     2: ['muxed_B_2']
+                                 }
+                             }
+        ])
+
+        self.assert_dbc_dump(
+            db,
+            'tests/files/dbc/issue_184_extended_mux_independent_multiplexors_dumped.dbc')
+
+    def test_issue_184_cascaded_multiplexors(self):
+        db = cantools.database.load_file(
+            'tests/files/dbc/issue_184_extended_mux_cascaded.dbc')
+
+        self.assertEqual(db.messages[0].signal_tree,
+                         [
+                             {
+                                 'MUX_A': {
+                                     1: ['muxed_A_1'],
+                                     2: [
+                                         {
+                                             'muxed_A_2_MUX_B': {
+                                                 0: ['muxed_B_0'],
+                                                 1: ['muxed_B_1']
+                                             }
+                                         }
+                                     ]
+                                 }
+                             }
+        ])
+
+        self.assert_dbc_dump(
+            db,
+            'tests/files/dbc/issue_184_extended_mux_cascaded_dumped.dbc')
+
+    def test_bus_comment(self):
+        filename = 'tests/files/dbc/bus_comment.dbc'
+        db = cantools.database.load_file(filename)
+        self.assertEqual(db.buses[0].comment, 'SpecialRelease')
+        self.assert_dbc_dump(db, filename)
 
 
 # This file is not '__main__' when executed via 'python setup.py3

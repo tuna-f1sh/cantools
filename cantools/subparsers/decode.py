@@ -1,4 +1,4 @@
-from __future__ import print_function
+import argparse
 import sys
 import os
 import time
@@ -7,56 +7,21 @@ import re
 import binascii
 import struct
 import uuid
+from argparse_addons import Integer
 
 from tqdm import tqdm
 from influxdb import InfluxDBClient
 
 from .. import database
+from .. import logreader
 from .utils import format_message_by_frame_id
 
 IMPORT_TIME = datetime.datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%dT%H:%M:%SZ')
 HOSTNAME = os.uname().nodename
 UUID = str(uuid.uuid4())
 
-# Matches 'candump' output, i.e. "vcan0  1F0   [8]  00 00 00 00 00 00 1B C1".
-RE_CANDUMP = re.compile(r'^.*  ([0-9A-F]+)   \[\d+\]\s*([0-9A-F ]*)$')
-# Matches 'candump -L' log file, i.e. "(1575305161.758357) can0 201#0000000062".
-RE_CANDUMP_LOG = re.compile(r'^\(([0-9]{10}.[0-9]{6})\) ([A-Za-z]{3,4}[0-9]{1,2}) ([0-9A-Za-z]{3,8})#([0-9A-Za-z]{2,16})$')
-
-def _human_timestamp(timestamp, prescision=1e9):
-    timestamp = timestamp / prescision
+def _human_timestamp(timestamp):
     return datetime.datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-
-def _log_mo_unpack(mo):
-    timestamp = mo.group(1)
-    # convert to float and to int ns by multiply by 1e9 before convert
-    timestamp = float(timestamp)
-    timestamp = int(timestamp * 1e9)
-    link = mo.group(2)
-    frame_id = mo.group(3)
-    frame_id = '0' * (8 - len(frame_id)) + frame_id
-    frame_id = binascii.unhexlify(frame_id)
-    frame_id = struct.unpack('>I', frame_id)[0]
-    data = mo.group(4)
-    data = data.ljust(16, '0')
-    data = binascii.unhexlify(data)
-
-    return timestamp, link, frame_id, data
-
-def _mo_unpack(mo):
-    timestamp = time.time()
-    # convert to ns
-    timestamp = int(timestamp * 1e9)
-    link = mo.group(0)
-    frame_id = mo.group(1)
-    frame_id = '0' * (8 - len(frame_id)) + frame_id
-    frame_id = binascii.unhexlify(frame_id)
-    frame_id = struct.unpack('>I', frame_id)[0]
-    data = mo.group(2)
-    data = data.replace(' ', '')
-    data = binascii.unhexlify(data)
-
-    return timestamp, link, frame_id, data
 
 def _write_to_db(client, json, cs=100):
     for x in tqdm(range(0, len(json), cs), unit='chunk', desc='Posting chunks to InfluxDB server'):
@@ -86,58 +51,50 @@ def _do_decode(args):
         else:
             fh = sys.stdin
 
-        for line in fh:
-            line = line.strip('\r\n')
+        parser = logreader.Parser(fh)
+        for line, frame in parser.iterlines(keep_unknowns=True):
+            if frame is not None:
+                if not frame.frame_id in args.id_filter and len(args.id_filter) > 0: continue
 
-            if args.filetype == 'dump':
-                mo = RE_CANDUMP.match(line)
-                if mo: timestamp, link, frame_id, data = _mo_unpack(mo)
-                else: continue
-            elif args.filetype == 'log':
-                mo = RE_CANDUMP_LOG.match(line)
-                if mo: timestamp, link, frame_id, data = _log_mo_unpack(mo)
-                else: continue
+                try:
+                    line += ' ::'
+                    line += format_message_by_frame_id(dbase,
+                                                       frame.frame_id,
+                                                       frame.data,
+                                                       decode_choices,
+                                                       args.single_line)
+                except KeyError:
+                    print('Skipping as not in DB')
+                    continue
 
-            if not frame_id in args.id_filter and len(args.id_filter) > 0: continue
+                if not args.quiet: print(line)
 
-            try:
-                line += ' ::'
-                line += format_message_by_frame_id(dbase,
-                                                   frame_id,
-                                                   data,
-                                                   decode_choices,
-                                                   args.single_line)
-            except KeyError:
-                print('Skipping as not in DB')
-                continue
+                try:
+                    if args.influxdb:
+                        signals = dbase.decode_message(frame.frame_id, frame.data, decode_choices=False)
+                        message = dbase.get_message_by_frame_id(frame.frame_id)
+                        timestamp = int(frame.timestamp.timestamp() * 1e9)
 
-            if not args.quiet: print(line)
+                        if not message in args.message_filter and len(args.message_filter) > 0: continue
 
-            try:
-                if args.influxdb:
-                    signals = dbase.decode_message(frame_id, data, decode_choices=False)
-                    message = dbase.get_message_by_frame_id(frame_id)
+                        if message and signals:
+                            json = {
+                                "measurement": message.name,
+                                "tags": {
+                                    "link": link,
+                                    "import_time": IMPORT_TIME,
+                                    "host": HOSTNAME,
+                                    "uuid": UUID,
+                                    "dbc": args.database
+                                },
+                                "time": timestamp,
+                                "fields": signals
+                            }
+                            influx_json.append(json)
 
-                    if not message in args.message_filter and len(args.message_filter) > 0: continue
-
-                    if message and signals:
-                        json = {
-                            "measurement": message.name,
-                            "tags": {
-                                "link": link,
-                                "import_time": IMPORT_TIME,
-                                "host": HOSTNAME,
-                                "uuid": UUID,
-                                "dbc": args.database
-                            },
-                            "time": timestamp,
-                            "fields": signals
-                        }
-                        influx_json.append(json)
-
-                        if not args.quiet: print('InfluxDB json: {}'.format(json))
-            except KeyError:
-                print('Skipping write')
+                            if not args.quiet: print('InfluxDB json: {}'.format(json))
+                except KeyError:
+                    print('Skipping write')
 
         if args.influxdb:
             writing = True
@@ -157,7 +114,8 @@ def add_subparser(subparsers):
     decode_parser = subparsers.add_parser(
         'decode',
         description=('Decode "candump" CAN frames read from standard input '
-                     'and print them in a human readable format.'))
+                     'and print them in a human readable format.'),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     decode_parser.add_argument(
         '-c', '--no-decode-choices',
         action='store_true',
@@ -226,7 +184,7 @@ def add_subparser(subparsers):
         help='Filter messages')
     decode_parser.add_argument(
         '-m', '--frame-id-mask',
-        type=lambda x: int(x, 0),
+        type=Integer(0),
         help=('Only compare selected frame id bits to find the message in the '
               'database. By default the candump and database frame ids must '
               'be equal for a match.'))

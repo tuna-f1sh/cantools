@@ -1,13 +1,13 @@
-|buildstatus|_
 |appveyor|_
 |coverage|_
+|nala|_
 
 About
 =====
 
 CAN BUS tools in Python 3.
 
-- `DBC`_, `KCD`_, SYM, ARXML 4 and CDD file parsing.
+- `DBC`_, `KCD`_, SYM, ARXML 3&4 and CDD file parsing.
 
 - CAN message encoding and decoding.
 
@@ -23,7 +23,7 @@ CAN BUS tools in Python 3.
 
 - CAN bus monitor.
 
-Python 2 support is deprecated as Python 3 has better unicode support.
+- Graphical plots of signals.
 
 Project homepage: https://github.com/eerimoq/cantools
 
@@ -92,7 +92,7 @@ Decode CAN frames captured with the Linux program ``candump``.
 
 .. code-block:: text
 
-   $ candump vcan0 | cantools decode tests/files/dbc/motohawk.dbc
+   $ candump vcan0 | python3 -m cantools decode tests/files/dbc/motohawk.dbc
      vcan0  1F0   [8]  80 4A 0F 00 00 00 00 00 ::
    ExampleMessage(
        Enable: 'Enabled' -,
@@ -116,7 +116,7 @@ Alternatively, the decoded message can be printed on a single line:
 
 .. code-block:: text
 
-   $ candump vcan0 | cantools decode --single-line tests/files/dbc/motohawk.dbc
+   $ candump vcan0 | python3 -m cantools decode --single-line tests/files/dbc/motohawk.dbc
      vcan0  1F0   [8]  80 4A 0F 00 00 00 00 00 :: ExampleMessage(Enable: 'Enabled' -, AverageRadius: 0.0 m, Temperature: 255.92 degK)
      vcan0  1F0   [8]  80 4A 0F 00 00 00 00 00 :: ExampleMessage(Enable: 'Enabled' -, AverageRadius: 0.0 m, Temperature: 255.92 degK)
      vcan0  1F0   [8]  80 4A 0F 00 00 00 00 00 :: ExampleMessage(Enable: 'Enabled' -, AverageRadius: 0.0 m, Temperature: 255.92 degK)
@@ -128,6 +128,80 @@ Use ``decode`` with the ``--influxdb INFLUX_DB`` to write to an InfluxDB databas
 
 Import works with the default file stream and ``filetype`` log - the timestamps in the logfile will be used during database write in this case.
 
+The plot subcommand
+^^^^^^^^^^^^^^^^^^^
+
+The plot subcommand is similar to the decode subcommand but messages are visualized using `matplotlib`_ instead of being printed to stdout.
+
+.. code-block:: bash
+
+    $ candump -l vcan0
+    $ cat candump-2021-01-04_180521.log
+    (1609779922.655421) vcan0 00000343#B204B9049C049C04
+    (1609779922.655735) vcan0 0000024A#120527052E051905
+    (1609779923.657524) vcan0 00000343#C404C404CB04C404
+    (1609779923.658086) vcan0 0000024A#8B058B058B059205
+    (1609779924.659912) vcan0 00000343#5C04790479045504
+    (1609779924.660471) vcan0 0000024A#44064B0659064406
+    (1609779925.662277) vcan0 00000343#15040704F203F203
+    (1609779925.662837) vcan0 0000024A#8B069906A706A706
+    (1609779926.664191) vcan0 00000343#BC03B503A703BC03
+    (1609779926.664751) vcan0 0000024A#A006A706C406C406
+
+    $ cat candump-2021-01-04_180521.log | python3 -m cantools plot tests/files/dbc/abs.dbc
+
+.. image:: docs/plot-1.png
+
+If you don't want to show all signals you can select the desired signals with command line arguments.
+A ``*`` can stand for any number of any character, a ``?`` for exactly one arbitrary character.
+Signals separated by a ``-`` are displayed in separate subplots.
+Optionally a format can be specified after a signal, separated by a colon.
+
+.. code-block:: bash
+
+    $ cat candump-2021-01-04_180521.log | python3 -m cantools plot tests/files/dbc/abs.dbc '*33.*fl:-<' '*33.*fr:->' - '*33.*rl:-<' '*33.*rr:->'
+
+.. image:: docs/plot-2-subplots.png
+
+Signals with a different range of values can be displayed in the same subplot on different vertical axes by separating them with a comma.
+
+.. code-block:: bash
+
+   $ cat candump-2021-01-04_180521.log | cantools plot --auto-color tests/files/dbc/abs.dbc -- \
+      --ylabel 'Bremse 33' '*_33.*fl*:-<' '*_33.*fr*:>' '*_33.*rl*:3' '*_33.*rr*:4' , \
+      --ylabel 'Bremse 2' '*_2.*fl*:-<' '*_2.*fr*:>' '*_2.*rl*:3' '*_2.*rr*:4'
+
+.. image:: docs/plot-2-axes.png
+
+Matplotlib comes with different preinstalled styles that you can use:
+
+.. code-block:: bash
+
+   $ cat candump-2021-01-04_180521.log | cantools plot tests/files/dbc/abs.dbc --style seaborn
+
+.. image:: docs/plot-seaborn.png
+
+You can try all available styles with
+
+.. code-block:: bash
+
+   $ cantools plot --list-styles . | sed -n '/^- /s/^- //p' | while IFS= read -r style; do
+         cat candump-2021-01-04_180521.log | cantools plot tests/files/dbc/abs.dbc --style "$style" --title "--style '$style'"
+     done
+
+For more information see
+
+.. code-block:: bash
+
+    $ python3 -m cantools plot --help
+
+Note that by default matplotlib is not installed with cantools. But it can be by specifying an extra
+at installation:
+
+.. code-block:: python
+
+    $ python3 -m pip install cantools[plot]
+
 The dump subcommand
 ^^^^^^^^^^^^^^^^^^^
 
@@ -135,7 +209,7 @@ Dump given database in a human readable format:
 
 .. code-block:: text
 
-   $ cantools dump tests/files/dbc/motohawk.dbc
+   $ python3 -m cantools dump tests/files/dbc/motohawk.dbc
    ================================= Messages =================================
 
      ------------------------------------------------------------------------
@@ -213,7 +287,7 @@ database. The database is ``tests/files/dbc/motohawk.dbc``.
 
 .. code-block:: text
 
-   $ cantools generate_c_source tests/files/dbc/motohawk.dbc
+   $ python3 -m cantools generate_c_source tests/files/dbc/motohawk.dbc
    Successfully generated motohawk.h and motohawk.c.
 
 See `motohawk.h`_ and `motohawk.c`_ for the contents of the generated
@@ -225,7 +299,7 @@ file names are also changed by this option.
 
 .. code-block:: text
 
-   $ cantools generate_c_source --database-name my_database_name tests/files/dbc/motohawk.dbc
+   $ python3 -m cantools generate_c_source --database-name my_database_name tests/files/dbc/motohawk.dbc
    Successfully generated my_database_name.h and my_database_name.c.
 
 See `my_database_name.h`_ and `my_database_name.c`_ for the contents
@@ -236,7 +310,7 @@ code without floating point types, i.e. ``float`` and ``double``.
 
 .. code-block:: text
 
-   $ cantools generate_c_source --no-floating-point-numbers tests/files/dbc/motohawk.dbc
+   $ python3 -m cantools generate_c_source --no-floating-point-numbers tests/files/dbc/motohawk.dbc
    Successfully generated motohawk.h and motohawk.c.
 
 See `motohawk_no_floating_point_numbers.h`_ and
@@ -260,7 +334,7 @@ Monitor CAN bus traffic in a text based user interface.
 
 .. code-block:: text
 
-   $ cantools monitor tests/files/dbc/motohawk.dbc
+   $ python3 -m cantools monitor tests/files/dbc/motohawk.dbc
 
 .. image:: https://github.com/eerimoq/cantools/raw/master/docs/monitor.png
 
@@ -285,7 +359,7 @@ Contributing
 
    .. code-block:: text
 
-      pip install -r requirements.txt
+      python3 -m pip install -r requirements.txt
 
 #. Implement the new feature or bug fix.
 
@@ -300,14 +374,14 @@ Contributing
 
 #. Create a pull request.
 
-.. |buildstatus| image:: https://travis-ci.org/eerimoq/cantools.svg?branch=master
-.. _buildstatus: https://travis-ci.org/eerimoq/cantools
-
 .. |appveyor| image:: https://ci.appveyor.com/api/projects/status/github/eerimoq/cantools?svg=true
 .. _appveyor: https://ci.appveyor.com/project/eerimoq/cantools/branch/master
 
 .. |coverage| image:: https://coveralls.io/repos/github/eerimoq/cantools/badge.svg?branch=master
 .. _coverage: https://coveralls.io/github/eerimoq/cantools
+
+.. |nala| image:: https://img.shields.io/badge/nala-test-blue.svg
+.. _nala: https://github.com/eerimoq/nala
 
 .. _small DBC-file: https://github.com/eerimoq/cantools/blob/master/tests/files/dbc/motohawk.dbc
 
@@ -352,3 +426,5 @@ Contributing
 .. _motohawk_no_floating_point_numbers.h: https://github.com/eerimoq/cantools/blob/master/tests/files/c_source/motohawk_no_floating_point_numbers.h
 
 .. _motohawk_no_floating_point_numbers.c: https://github.com/eerimoq/cantools/blob/master/tests/files/c_source/motohawk_no_floating_point_numbers.c
+
+.. _matplotlib: https://matplotlib.org/

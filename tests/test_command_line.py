@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import shutil
 import unittest
 
 try:
@@ -50,7 +51,6 @@ class CanToolsCommandLineTest(unittest.TestCase):
   vcan0  ERROR
 
   vcan0  1F4   [4]  01 02 03 04
-  vcan0  1F4   [3]  01 02 03
   vcan0  1F3   [3]  01 02 03
 """
 
@@ -77,8 +77,164 @@ IO_DEBUG(
     IO_DEBUG_test_signed: 3,
     IO_DEBUG_test_float: 2.0
 )
-  vcan0  1F4   [3]  01 02 03 :: unpack requires at least 32 bits to unpack (got 24)
   vcan0  1F3   [3]  01 02 03 :: Unknown frame id 499 (0x1f3)
+"""
+
+        stdout = StringIO()
+
+        with patch('sys.stdin', StringIO(input_data)):
+            with patch('sys.stdout', stdout):
+                with patch('sys.argv', argv):
+                    cantools._main()
+                    actual_output = stdout.getvalue()
+                    self.assertEqual(actual_output, expected_output)
+
+    def test_decode_timestamp_absolute(self):
+        argv = ['cantools', 'decode', 'tests/files/dbc/socialledge.dbc']
+        input_data = """\
+ (2020-12-19 12:04:45.485261)  vcan0  0C8   [8]  F0 00 00 00 00 00 00 00
+ (2020-12-19 12:04:48.597222)  vcan0  064   [8]  F0 01 FF FF FF FF FF FF
+ (2020-12-19 12:04:56.805087)  vcan0  1F4   [4]  01 02 03 04
+ (2020-12-19 12:04:59.085517)  vcan0  1F3   [3]  01 02 03
+"""
+
+        expected_output = """\
+ (2020-12-19 12:04:45.485261)  vcan0  0C8   [8]  F0 00 00 00 00 00 00 00 ::
+SENSOR_SONARS(
+    SENSOR_SONARS_mux: 0,
+    SENSOR_SONARS_err_count: 15,
+    SENSOR_SONARS_left: 0.0,
+    SENSOR_SONARS_middle: 0.0,
+    SENSOR_SONARS_right: 0.0,
+    SENSOR_SONARS_rear: 0.0
+)
+ (2020-12-19 12:04:48.597222)  vcan0  064   [8]  F0 01 FF FF FF FF FF FF ::
+DRIVER_HEARTBEAT(
+    DRIVER_HEARTBEAT_cmd: 240
+)
+ (2020-12-19 12:04:56.805087)  vcan0  1F4   [4]  01 02 03 04 ::
+IO_DEBUG(
+    IO_DEBUG_test_unsigned: 1,
+    IO_DEBUG_test_enum: 'IO_DEBUG_test2_enum_two',
+    IO_DEBUG_test_signed: 3,
+    IO_DEBUG_test_float: 2.0
+)
+ (2020-12-19 12:04:59.085517)  vcan0  1F3   [3]  01 02 03 :: Unknown frame id 499 (0x1f3)
+"""
+
+        stdout = StringIO()
+
+        with patch('sys.stdin', StringIO(input_data)):
+            with patch('sys.stdout', stdout):
+                with patch('sys.argv', argv):
+                    cantools._main()
+                    actual_output = stdout.getvalue()
+                    self.assertEqual(actual_output, expected_output)
+
+    def test_decode_timestamp_zero(self):
+        argv = ['cantools', 'decode', 'tests/files/dbc/socialledge.dbc']
+        input_data = """\
+ (000.000000)  vcan0  0C8   [8]  F0 00 00 00 00 00 00 00
+ (002.047817)  vcan0  064   [8]  F0 01 FF FF FF FF FF FF
+ (012.831664)  vcan0  1F4   [4]  01 02 03 04
+ (015.679614)  vcan0  1F3   [3]  01 02 03
+"""
+
+        expected_output = """\
+ (000.000000)  vcan0  0C8   [8]  F0 00 00 00 00 00 00 00 ::
+SENSOR_SONARS(
+    SENSOR_SONARS_mux: 0,
+    SENSOR_SONARS_err_count: 15,
+    SENSOR_SONARS_left: 0.0,
+    SENSOR_SONARS_middle: 0.0,
+    SENSOR_SONARS_right: 0.0,
+    SENSOR_SONARS_rear: 0.0
+)
+ (002.047817)  vcan0  064   [8]  F0 01 FF FF FF FF FF FF ::
+DRIVER_HEARTBEAT(
+    DRIVER_HEARTBEAT_cmd: 240
+)
+ (012.831664)  vcan0  1F4   [4]  01 02 03 04 ::
+IO_DEBUG(
+    IO_DEBUG_test_unsigned: 1,
+    IO_DEBUG_test_enum: 'IO_DEBUG_test2_enum_two',
+    IO_DEBUG_test_signed: 3,
+    IO_DEBUG_test_float: 2.0
+)
+ (015.679614)  vcan0  1F3   [3]  01 02 03 :: Unknown frame id 499 (0x1f3)
+"""
+
+        stdout = StringIO()
+
+        with patch('sys.stdin', StringIO(input_data)):
+            with patch('sys.stdout', stdout):
+                with patch('sys.argv', argv):
+                    cantools._main()
+                    actual_output = stdout.getvalue()
+                    self.assertEqual(actual_output, expected_output)
+
+    def test_decode_can_fd(self):
+        argv = ['cantools', 'decode', 'tests/files/dbc/foobar.dbc']
+        input_data = """\
+  vcan0  12333 [064]  02 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+"""
+
+        expected_output = """\
+  vcan0  12333 [064]  02 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ::
+CanFd(
+    Fie: 2,
+    Fas: 1
+)
+"""
+
+        stdout = StringIO()
+
+        with patch('sys.stdin', StringIO(input_data)):
+            with patch('sys.stdout', stdout):
+                with patch('sys.argv', argv):
+                    cantools._main()
+                    actual_output = stdout.getvalue()
+                    self.assertEqual(actual_output, expected_output)
+
+    def test_decode_log_format(self):
+        argv = [
+            'cantools',
+            'decode',
+            'tests/files/dbc/socialledge.dbc'
+        ]
+        input_data = """\
+(1594172461.968006) vcan0 0C8#F000000000000000
+(1594172462.126542) vcan0 064#F001FFFFFFFFFFFFFFFF
+(1594172462.127684) vcan0 ERROR
+
+(1594172462.356874) vcan0 1F4#01020304
+(1594172462.688432) vcan0 1F3#010203
+"""
+
+        expected_output = """\
+(1594172461.968006) vcan0 0C8#F000000000000000 ::
+SENSOR_SONARS(
+    SENSOR_SONARS_mux: 0,
+    SENSOR_SONARS_err_count: 15,
+    SENSOR_SONARS_left: 0.0,
+    SENSOR_SONARS_middle: 0.0,
+    SENSOR_SONARS_right: 0.0,
+    SENSOR_SONARS_rear: 0.0
+)
+(1594172462.126542) vcan0 064#F001FFFFFFFFFFFFFFFF ::
+DRIVER_HEARTBEAT(
+    DRIVER_HEARTBEAT_cmd: 240
+)
+(1594172462.127684) vcan0 ERROR
+
+(1594172462.356874) vcan0 1F4#01020304 ::
+IO_DEBUG(
+    IO_DEBUG_test_unsigned: 1,
+    IO_DEBUG_test_enum: 'IO_DEBUG_test2_enum_two',
+    IO_DEBUG_test_signed: 3,
+    IO_DEBUG_test_float: 2.0
+)
+(1594172462.688432) vcan0 1F3#010203 :: Unknown frame id 499 (0x1f3)
 """
 
         stdout = StringIO()
@@ -104,7 +260,6 @@ IO_DEBUG(
   vcan0  ERROR
 
   vcan0  1F4   [4]  01 02 03 04
-  vcan0  1F4   [3]  01 02 03
   vcan0  1F3   [3]  01 02 03
 """
 
@@ -114,8 +269,42 @@ IO_DEBUG(
   vcan0  ERROR
 
   vcan0  1F4   [4]  01 02 03 04 :: IO_DEBUG(IO_DEBUG_test_unsigned: 1, IO_DEBUG_test_enum: 'IO_DEBUG_test2_enum_two', IO_DEBUG_test_signed: 3, IO_DEBUG_test_float: 2.0)
-  vcan0  1F4   [3]  01 02 03 :: unpack requires at least 32 bits to unpack (got 24)
   vcan0  1F3   [3]  01 02 03 :: Unknown frame id 499 (0x1f3)
+"""
+
+        stdout = StringIO()
+
+        with patch('sys.stdin', StringIO(input_data)):
+            with patch('sys.stdout', stdout):
+                with patch('sys.argv', argv):
+                    cantools._main()
+                    actual_output = stdout.getvalue()
+                    self.assertEqual(actual_output, expected_output)
+
+    def test_single_line_decode_log_format(self):
+        argv = [
+            'cantools',
+            'decode',
+            '--single-line',
+            'tests/files/dbc/socialledge.dbc'
+        ]
+
+        input_data = """\
+(1594172461.968006) vcan0 0C8#F000000000000000
+(1594172462.126542) vcan0 064#F001FFFFFFFFFFFFFFFF
+(1594172462.127684) vcan0 ERROR
+
+(1594172462.356874) vcan0 1F4#01020304
+(1594172462.688432) vcan0 1F3#010203
+"""
+
+        expected_output = """\
+(1594172461.968006) vcan0 0C8#F000000000000000 :: SENSOR_SONARS(SENSOR_SONARS_mux: 0, SENSOR_SONARS_err_count: 15, SENSOR_SONARS_left: 0.0, SENSOR_SONARS_middle: 0.0, SENSOR_SONARS_right: 0.0, SENSOR_SONARS_rear: 0.0)
+(1594172462.126542) vcan0 064#F001FFFFFFFFFFFFFFFF :: DRIVER_HEARTBEAT(DRIVER_HEARTBEAT_cmd: 240)
+(1594172462.127684) vcan0 ERROR
+
+(1594172462.356874) vcan0 1F4#01020304 :: IO_DEBUG(IO_DEBUG_test_unsigned: 1, IO_DEBUG_test_enum: 'IO_DEBUG_test2_enum_two', IO_DEBUG_test_signed: 3, IO_DEBUG_test_float: 2.0)
+(1594172462.688432) vcan0 1F3#010203 :: Unknown frame id 499 (0x1f3)
 """
 
         stdout = StringIO()
@@ -565,6 +754,178 @@ BATTERY_VT(
                 actual_output = stdout.getvalue()
                 self.assertEqual(actual_output, expected_output)
 
+    def test_dump_with_comments(self):
+        argv = [
+            'cantools',
+            'dump',
+            '--with-comments',
+            'tests/files/dbc/motohawk_with_comments.dbc'
+        ]
+
+        expected_output = """\
+================================= Messages =================================
+
+  ------------------------------------------------------------------------
+
+  Name:       ExampleMessage
+  Id:         0x1f0
+  Length:     8 bytes
+  Cycle time: - ms
+  Senders:    PCM1
+  Layout:
+
+                          Bit
+
+             7   6   5   4   3   2   1   0
+           +---+---+---+---+---+---+---+---+
+         0 |<-x|<---------------------x|<--|
+           +---+---+---+---+---+---+---+---+
+             |                       +-- AverageRadius
+             +-- Enable
+           +---+---+---+---+---+---+---+---+
+         1 |-------------------------------|
+           +---+---+---+---+---+---+---+---+
+         2 |----------x|   |   |   |   |   |
+     B     +---+---+---+---+---+---+---+---+
+     y               +-- Temperature
+     t     +---+---+---+---+---+---+---+---+
+     e   3 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+         4 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+         5 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+         6 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+         7 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+
+  Signal tree:
+
+    -- {root}
+       +-- Enable [94mEnable signal comment [-][0m
+       +-- AverageRadius [94mAverageRadius signal comment [m][0m
+       +-- Temperature [94mTemperature with a really long and complicated comment
+                       that probably require many many lines in a decently wide
+                       terminal [degK][0m
+
+  Signal choices:
+
+    Enable
+        0 Disabled
+        1 Enabled
+
+  ------------------------------------------------------------------------
+"""
+
+        stdout = StringIO()
+
+        with patch('sys.stdout', stdout):
+            with patch('sys.argv', argv):
+                cantools._main()
+                actual_output = stdout.getvalue()
+                self.assertEqual(actual_output, expected_output)
+
+    def test_dump_with_comments_mux(self):
+        argv = [
+            'cantools',
+            'dump',
+            '--with-comments',
+            'tests/files/dbc/bus_comment.dbc'
+        ]
+
+        expected_output = """\
+================================= Messages =================================
+
+  ------------------------------------------------------------------------
+
+  Name:       Message1
+  Id:         0x123456
+      Priority:       0
+      PGN:            0x01200
+      Source:         0x56
+      Destination:    0x34
+      Format:         PDU 1
+  Length:     8 bytes
+  Cycle time: 0 ms
+  Senders:    -
+  Layout:
+
+                          Bit
+
+             7   6   5   4   3   2   1   0
+           +---+---+---+---+---+---+---+---+
+         0 |<---------------------x|   |   |
+           +---+---+---+---+---+---+---+---+
+             +-- Multiplexor
+           +---+---+---+---+---+---+---+---+
+         1 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+         2 |<-x|   |   |   |<-x|<-x|   |   |
+           +---+---+---+---+---+---+---+---+
+             |               |   +-- BIT_J
+             |               +-- BIT_C
+             +-- BIT_G
+           +---+---+---+---+---+---+---+---+
+         3 |   |   |<-x|<-x|   |<-x|   |<-x|
+     B     +---+---+---+---+---+---+---+---+
+     y               |   |       |       +-- BIT_L
+     t               |   |       +-- BIT_A
+     e               |   +-- BIT_K
+                     +-- BIT_E
+           +---+---+---+---+---+---+---+---+
+         4 |<-x|<-x|   |   |   |   |<-x|<-x|
+           +---+---+---+---+---+---+---+---+
+             |   |                   |   +-- BIT_D
+             |   |                   +-- BIT_B
+             |   +-- BIT_H
+             +-- BIT_F
+           +---+---+---+---+---+---+---+---+
+         5 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+         6 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+         7 |   |   |   |   |   |   |   |   |
+           +---+---+---+---+---+---+---+---+
+
+  Signal tree:
+
+    -- {root}
+       +-- Multiplexor [94mDefines data content for response messages.[0m
+           +-- 8
+           |   +-- BIT_J
+           |   +-- BIT_C
+           |   +-- BIT_G
+           |   +-- BIT_L
+           +-- 16
+           |   +-- BIT_J
+           |   +-- BIT_C
+           |   +-- BIT_G
+           |   +-- BIT_L
+           +-- 24
+               +-- BIT_J
+               +-- BIT_C
+               +-- BIT_G
+               +-- BIT_L
+               +-- BIT_A
+               +-- BIT_K
+               +-- BIT_E
+               +-- BIT_D
+               +-- BIT_B
+               +-- BIT_H
+               +-- BIT_F
+
+  ------------------------------------------------------------------------
+"""
+
+        stdout = StringIO()
+
+        with patch('sys.stdout', stdout):
+            with patch('sys.argv', argv):
+                cantools._main()
+                actual_output = stdout.getvalue()
+                self.assertEqual(actual_output, expected_output)
+
     def test_dump_no_sender(self):
         argv = [
             'cantools',
@@ -579,8 +940,8 @@ BATTERY_VT(
   ------------------------------------------------------------------------
 
   Name:       Foo
-  Id:         0x40000000
-  Length:     0 bytes
+  Id:         0x1d8
+  Length:     1 bytes
   Cycle time: - ms
   Senders:    -
   Layout:
@@ -967,6 +1328,31 @@ BATTERY_VT(
                                         'tests/files/c_source/' + database_h)
                 self.assert_files_equal(database_c,
                                         'tests/files/c_source/' + database_c)
+
+    def test_generate_c_source_output_directory(self):
+        database = 'motohawk'
+        
+        output_directory = 'some_dir'
+
+        argv = [
+            'cantools',
+            'generate_c_source',
+            '--output-directory', output_directory,
+            'tests/files/dbc/{}.dbc'.format(database)
+        ]
+
+        database_h = os.path.join(output_directory, f'{database}.h')
+        database_c = os.path.join(output_directory, f'{database}.c')
+
+        shutil.rmtree(output_directory, ignore_errors=True)
+
+        with patch('sys.argv', argv):
+            cantools._main()
+
+        self.assert_files_equal(database_h,
+                                'tests/files/c_source/' + os.path.basename(database_h))
+        self.assert_files_equal(database_c,
+                                'tests/files/c_source/' + os.path.basename(database_c))
 
     def test_generate_c_source_bit_fields(self):
         databases = [

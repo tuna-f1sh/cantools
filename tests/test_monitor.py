@@ -1,5 +1,6 @@
 import unittest
 import curses
+import traceback
 
 try:
     from unittest.mock import Mock
@@ -25,6 +26,7 @@ class Args(object):
         self.no_strict = False
         self.single_line = single_line
         self.bit_rate = None
+        self.fd = False
         self.bus_type = 'socketcan'
         self.channel = 'vcan0'
 
@@ -53,8 +55,20 @@ class CanToolsMonitorTest(unittest.TestCase):
 
     maxDiff = None
 
-    def assert_called(self, mock, expected):
-        self.assertEqual(mock.call_args_list, expected)
+    color_pair_side_effect = [ "default", "green", "cyan", "cyan inverted" ]
+
+    def assert_called(self, mock, expected, verbose=False):
+        try:
+            self.assertEqual(mock.call_args_list, expected)
+        except AssertionError as e:
+            if verbose:
+                nl = ",\n "
+                print(f"Assertion failed:")
+                print(f"Expected: {nl.join(map(lambda x: str(x), expected))}")
+                print(f"Got: {nl.join(map(lambda x: str(x), mock.call_args_list))}")
+                print("Traceback:")
+                traceback.print_stack()
+            raise e
 
     @patch('can.Notifier')
     @patch('can.Bus')
@@ -74,12 +88,12 @@ class CanToolsMonitorTest(unittest.TestCase):
         # Prepare mocks.
         stdscr = StdScr()
         args = Args('tests/files/dbc/motohawk.dbc')
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
         monitor = Monitor(stdscr, args)
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(use_default_colors, [call()])
@@ -88,7 +102,8 @@ class CanToolsMonitorTest(unittest.TestCase):
             init_pair,
             [
                 call(1, curses.COLOR_BLACK, curses.COLOR_GREEN),
-                call(2, curses.COLOR_BLACK, curses.COLOR_CYAN)
+                call(2, curses.COLOR_BLACK, curses.COLOR_CYAN),
+                call(3, curses.COLOR_CYAN, curses.COLOR_BLACK)
             ])
         self.assert_called(color_pair, [call(1), call(2)])
         self.assert_called(bus, [call(bustype='socketcan', channel='vcan0')])
@@ -115,6 +130,34 @@ class CanToolsMonitorTest(unittest.TestCase):
     @patch('curses.init_pair')
     @patch('curses.curs_set')
     @patch('curses.use_default_colors')
+    def test_can_fd(self,
+                    use_default_colors,
+                    curs_set,
+                    init_pair,
+                    is_term_resized,
+                    color_pair,
+                    bus,
+                    notifier):
+        # Prepare mocks.
+        stdscr = StdScr()
+        args = Args('tests/files/dbc/motohawk.dbc')
+        args.fd = True
+        is_term_resized.return_value = False
+
+        # Run monitor.
+        monitor = Monitor(stdscr, args)
+        monitor.run(1)
+
+        # Check mocks.
+        self.assert_called(bus, [call(bustype='socketcan', channel='vcan0', fd=True)])
+
+    @patch('can.Notifier')
+    @patch('can.Bus')
+    @patch('curses.color_pair')
+    @patch('curses.is_term_resized')
+    @patch('curses.init_pair')
+    @patch('curses.curs_set')
+    @patch('curses.use_default_colors')
     def test_display_one_frame(self,
                                _use_default_colors,
                                _curs_set,
@@ -126,7 +169,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         # Prepare mocks.
         stdscr = StdScr()
         args = Args('tests/files/dbc/motohawk.dbc')
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -134,7 +177,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         monitor.on_message_received(can.Message(
             arbitration_id=496,
             data=b'\xc0\x06\xe0\x00\x00\x00\x00\x00'))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -175,7 +218,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         stdscr = StdScr()
         args = Args('tests/files/dbc/motohawk.dbc',
                     single_line=True)
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -183,7 +226,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         monitor.on_message_received(can.Message(
             arbitration_id=496,
             data=b'\xc0\x06\xe0\x00\x00\x00\x00\x00'))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -222,7 +265,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         # Prepare mocks.
         stdscr = StdScr()
         args = Args('tests/files/dbc/msxii_system_can.dbc')
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -230,7 +273,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         monitor.on_message_received(can.Message(
             arbitration_id=1025,
             data=b'\x24\x00\x98\x98\x0b\x00'))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -265,7 +308,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         # Prepare mocks.
         stdscr = StdScr()
         args = Args('tests/files/dbc/msxii_system_can.dbc')
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -273,7 +316,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         monitor.on_message_received(can.Message(
             arbitration_id=1025,
             data=b'\x00\x00\x98\x98\x0b\x00'))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -314,7 +357,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         stdscr = StdScr()
         args = Args('tests/files/dbc/msxii_system_can.dbc',
                     single_line=True)
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -322,7 +365,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         monitor.on_message_received(can.Message(
             arbitration_id=1025,
             data=b'\x00\x00\x98\x98\x0b\x00'))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -362,7 +405,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         stdscr = StdScr()
         args = Args('tests/files/dbc/multiplex_2.dbc',
                     single_line=True)
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -383,7 +426,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             arbitration_id=0xc00fefe,
             data=b'\x20\x00\x00\x00\x01\x00\x00\x00',
             timestamp=3.0))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -430,7 +473,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         # Prepare mocks.
         stdscr = StdScr()
         args = Args('tests/files/dbc/motohawk.dbc')
-        color_pair.side_effect = ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -443,7 +486,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             arbitration_id=496,
             data=b'\xc0\x06\xd0\x00\x00\x00\x00\x00',
             timestamp=2.1))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -485,7 +528,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             'f', 'Y', '[', '\b', '\n', 'f', '\b', 'E', '\n', 'q'
         ])
         args = Args('tests/files/dbc/motohawk.dbc')
-        color_pair.side_effect = 10 * ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -493,7 +536,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         monitor.on_message_received(can.Message(
             arbitration_id=496,
             data=b'\xc0\x06\xe0\x00\x00\x00\x00\x00'))
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -501,143 +544,97 @@ class CanToolsMonitorTest(unittest.TestCase):
             [
                 # No filter.
                 call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29,
-                     0,
-                     'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ',
-                     'cyan'),
+                call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan'),
 
                 # 'f' pressed.
                 call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29,
-                     0,
-                     'Filter:                                                         ',
-                     'cyan'),
+                call(29, 0, 'Filter regex: ', 'cyan'),
+                call(29, 14, ' ', 'cyan inverted'),
+                call(29, 15, '                                                 ', 'cyan'),
 
                 # No match on 'Y'.
-                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
-                call(29,
-                     0,
-                     'Filter: Y                                                       ',
-                     'cyan'),
+                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0, Filter: Y'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
+                call(29, 0, 'Filter regex: Y', 'cyan'),
+                call(29, 15, ' ', 'cyan inverted'),
+                call(29, 16, '                                                ', 'cyan'),
 
                 # Invalid filter 'Y['.
-                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0, Filter: Y['),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29,
-                     0,
-                     'Filter: Y[                                                      ',
-                     'cyan'),
+                call(29, 0, 'Filter regex: Y[', 'cyan'),
+                call(29, 16, ' ', 'cyan inverted'),
+                call(29, 17, '                                               ', 'cyan'),
 
                 # No match on 'Y'.
-                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
-                call(29,
-                     0,
-                     'Filter: Y                                                       ',
-                     'cyan'),
+                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0, Filter: Y'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
+                call(29, 0, 'Filter regex: Y', 'cyan'),
+                call(29, 15, ' ', 'cyan inverted'),
+                call(29, 16, '                                                ', 'cyan'),
 
-                # Hit enter to hide filter.
-                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
-                call(29,
-                     0,
-                     'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ',
-                     'cyan'),
+                # Hit enter to hide filter prompt.
+                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0, Filter: Y'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
+                call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan'),
 
                 # 'f' pressed again.
-                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
-                call(29,
-                     0,
-                     'Filter: Y                                                       ',
-                     'cyan'),
+                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0, Filter: Y'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
+                call(29, 0, 'Filter regex: Y', 'cyan'),
+                call(29, 15, ' ', 'cyan inverted'),
+                call(29, 16, '                                                ', 'cyan'),
 
                 # Backspace.
                 call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29,
-                     0,
-                     'Filter:                                                         ',
-                     'cyan'),
+                call(29, 0, 'Filter regex: ', 'cyan'),
+                call(29, 14, ' ', 'cyan inverted'),
+                call(29, 15, '                                                 ', 'cyan'),
 
                 # Match on 'E'.
-                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0, Filter: E'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29,
-                     0,
-                     'Filter: E                                                       ',
-                     'cyan'),
+                call(29, 0, 'Filter regex: E', 'cyan'),
+                call(29, 15, ' ', 'cyan inverted'),
+                call(29, 16, '                                                ', 'cyan'),
 
                 # Hit enter to hide filter.
-                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(0, 0, 'Received: 1, Discarded: 0, Errors: 0, Filter: E'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29,
-                     0,
-                     'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ',
-                     'cyan')
+                call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan')
             ])
 
     @patch('can.Notifier')
@@ -660,7 +657,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             'f', 'E', '\n', 'p', ' ', 'r', 'f', '\n', 'q'
         ])
         args = Args('tests/files/dbc/motohawk.dbc')
-        color_pair.side_effect = 10 * ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -676,9 +673,9 @@ class CanToolsMonitorTest(unittest.TestCase):
             data=b'\xc0\x06\xb0\x00\x00\x00\x00\x00',
             timestamp=6))
 
-        monitor.tick()
-        monitor.tick()
-        monitor.tick()
+        monitor.tick(1)
+        monitor.tick(1)
+        monitor.tick(1)
 
         # Input another before pause.
         monitor.on_message_received(can.Message(
@@ -686,7 +683,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             data=b'\xc0\x06\xc0\x00\x00\x00\x00\x00',
             timestamp=7))
 
-        monitor.tick()
+        monitor.tick(1)
 
         # Input when paused. Will not be displayed.
         monitor.on_message_received(can.Message(
@@ -694,9 +691,9 @@ class CanToolsMonitorTest(unittest.TestCase):
             data=b'\xc0\x06\xd0\x00\x00\x00\x00\x00',
             timestamp=10))
 
-        monitor.tick()
-        monitor.tick()
-        monitor.tick()
+        monitor.tick(1)
+        monitor.tick(1)
+        monitor.tick(1)
 
         # Input after reset.
         monitor.on_message_received(can.Message(
@@ -704,7 +701,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             data=b'\xc0\x06\x00\x00\x00\x00\x00\x00',
             timestamp=11))
 
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -712,112 +709,76 @@ class CanToolsMonitorTest(unittest.TestCase):
             [
                 # One ok and one with bad frame id.
                 call(0, 0, 'Received: 2, Discarded: 1, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29
-                     ,
-                     0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ',
-                     'cyan'),
+                call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan'),
 
                 # 'f' pressed.
                 call(0, 0, 'Received: 2, Discarded: 1, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29
-                     ,
-                     0, 'Filter:                                                         ',
-                     'cyan'),
-
+                call(29, 0, 'Filter regex: ', 'cyan'),
+                call(29, 14, ' ', 'cyan inverted'),
+                call(29, 15, '                                                 ', 'cyan'),
+                
                 # 'E' pressed.
-                call(0, 0, 'Received: 2, Discarded: 1, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(0, 0, 'Received: 2, Discarded: 1, Errors: 0, Filter: E'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.55 degK'),
                 call(6, 0, '              )'),
-                call(29
-                     ,
-                     0, 'Filter: E                                                       ',
-                     'cyan'),
+                call(29, 0, 'Filter regex: E', 'cyan'),
+                call(29, 15, ' ', 'cyan inverted'),
+                call(29, 16, '                                                ', 'cyan'),
 
                 # '\n' pressed.
-                call(0, 0, 'Received: 3, Discarded: 1, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(0, 0, 'Received: 3, Discarded: 1, Errors: 0, Filter: E'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       4.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.54 degK'),
                 call(6, 0, '              )'),
-                call(29
-                     ,
-                     0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ',
-                     'cyan'),
+                call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan'),
 
                 # 'p' pressed. Input frame not displayed.
 
                 # 'r' pressed.
                 call(0, 0, 'Received: 0, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
-                call(29
-                     ,
-                     0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ',
-                     'cyan'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
+                call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan'),
 
                 # Input after reset. 'f' pressed.
                 call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.48 degK'),
                 call(6, 0, '              )'),
-                call(29
-                     ,
-                     0, 'Filter:                                                         ',
-                     'cyan'),
+                call(29, 0, 'Filter regex: ', 'cyan'),
+                call(29, 14, ' ', 'cyan inverted'),
+                call(29, 15, '                                                 ', 'cyan'),
 
                 # '\n' pressed.
                 call(0, 0, 'Received: 1, Discarded: 0, Errors: 0'),
-                call(1,
-                     0,
-                     '   TIMESTAMP  MESSAGE                                           ',
-                     'green'),
+                call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
                 call(2, 0, '       0.000  ExampleMessage('),
                 call(3, 0, "                  Enable: 'Enabled' -,"),
                 call(4, 0, '                  AverageRadius: 3.2 m,'),
                 call(5, 0, '                  Temperature: 250.48 degK'),
                 call(6, 0, '              )'),
-                call(29
-                     ,
-                     0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ',
-                     'cyan')
+                call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan')
 
                 # 'q' pressed, no redraw.
             ])
@@ -842,7 +803,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             ' ', ' ', 'p', ' ', ' ', 'p', ' ', ' ', ' ', 'q'
         ])
         args = Args('tests/files/dbc/motohawk.dbc')
-        color_pair.side_effect = 8 * ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -854,12 +815,12 @@ class CanToolsMonitorTest(unittest.TestCase):
                 data=b'\xc0\x06\xe0\x00\x00\x00\x00\x00',
                 timestamp=timestamp))
 
-            monitor.tick()
+            monitor.tick(1)
 
         # Display most recently received at unpause.
-        monitor.tick()
-        monitor.tick()
-        monitor.tick()
+        monitor.tick(1)
+        monitor.tick(1)
+        monitor.tick(1)
 
         for timestamp in range(5, 7):
             monitor.on_message_received(can.Message(
@@ -867,9 +828,9 @@ class CanToolsMonitorTest(unittest.TestCase):
                 data=b'\xc0\x06\xe0\x00\x00\x00\x00\x00',
                 timestamp=timestamp))
 
-            monitor.tick()
+            monitor.tick(1)
 
-        monitor.run()
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -988,7 +949,7 @@ class CanToolsMonitorTest(unittest.TestCase):
         stdscr = StdScr(user_input=[' ', ' ', 'q'],
                         resolution=[(30, 40), (25, 35), (25, 35), (20, 30)])
         args = Args('tests/files/dbc/motohawk.dbc')
-        color_pair.side_effect = 3 * ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = True
 
         # Run monitor.
@@ -999,8 +960,8 @@ class CanToolsMonitorTest(unittest.TestCase):
             data=b'\xc0\x06\xe0\x00\x00\x00\x00\x00',
             timestamp=1))
 
-        monitor.tick()
-        monitor.run()
+        monitor.tick(1)
+        monitor.run(1)
 
         # Check mocks.
         self.assert_called(
@@ -1057,7 +1018,7 @@ class CanToolsMonitorTest(unittest.TestCase):
             ' ', 'KEY_NPAGE', 'KEY_NPAGE', 'KEY_NPAGE', 'KEY_PPAGE', 'q'
         ])
         args = Args('tests/files/dbc/msxii_system_can.dbc')
-        color_pair.side_effect = 5 * ['green', 'cyan']
+        color_pair.side_effect = lambda i: self.color_pair_side_effect[i]
         is_term_resized.return_value = False
 
         # Run monitor.
@@ -1138,8 +1099,8 @@ class CanToolsMonitorTest(unittest.TestCase):
             arbitration_id=1025,
             data=b'\x12\x00\x98\x98\x0b\x00',
             timestamp=18))
-        monitor.tick()
-        monitor.run()
+        monitor.tick(1)
+        monitor.run(1)
 
         self.maxDiff = None
         unittest.util._MAX_LENGTH=20000
@@ -1247,52 +1208,65 @@ class CanToolsMonitorTest(unittest.TestCase):
                 # Move to page 4
                 call(0, 0, 'Received: 19, Discarded: 0, Errors: 0'),
                 call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
-                call(2, 0, '                  BATTERY_VT_INDEX: 7,'),
-                call(3, 0, '                  MODULE_VOLTAGE_07: 39064,'),
-                call(4, 0, '                  MODULE_TEMP_07: 11'),
-                call(5, 0, '              )'),
-                call(6, 0, '       8.000  BATTERY_VT('),
-                call(7, 0, '                  BATTERY_VT_INDEX: 8,'),
-                call(8, 0, '                  MODULE_VOLTAGE_08: 39064,'),
-                call(9, 0, '                  MODULE_TEMP_08: 11'),
-                call(10, 0, '              )'),
-                call(11, 0, '       9.000  BATTERY_VT('),
-                call(12, 0, '                  BATTERY_VT_INDEX: 9,'),
-                call(13, 0, '                  MODULE_VOLTAGE_09: 39064,'),
-                call(14, 0, '                  MODULE_TEMP_09: 11'),
-                call(15, 0, '              )'),
+                call(2, 0, '                  MODULE_TEMP_04: 11'),
+                call(3, 0, '              )'),
+                call(4, 0, '       5.000  BATTERY_VT('),
+                call(5, 0, '                  BATTERY_VT_INDEX: 5,'),
+                call(6, 0, '                  MODULE_VOLTAGE_05: 39064,'),
+                call(7, 0, '                  MODULE_TEMP_05: 11'),
+                call(8, 0, '              )'),
+                call(9, 0, '       6.000  BATTERY_VT('),
+                call(10, 0, '                  BATTERY_VT_INDEX: 6,'),
+                call(11, 0, '                  MODULE_VOLTAGE_06: 39064,'),
+                call(12, 0, '                  MODULE_TEMP_06: 11'),
+                call(13, 0, '              )'),
+                call(14, 0, '       7.000  BATTERY_VT('),
+                call(15, 0, '                  BATTERY_VT_INDEX: 7,'),
+                call(16, 0, '                  MODULE_VOLTAGE_07: 39064,'),
+                call(17, 0, '                  MODULE_TEMP_07: 11'),
+                call(18, 0, '              )'),
+                call(19, 0, '       8.000  BATTERY_VT('),
+                call(20, 0, '                  BATTERY_VT_INDEX: 8,'),
+                call(21, 0, '                  MODULE_VOLTAGE_08: 39064,'),
+                call(22, 0, '                  MODULE_TEMP_08: 11'),
+                call(23, 0, '              )'),
+                call(24, 0, '       9.000  BATTERY_VT('),
+                call(25, 0, '                  BATTERY_VT_INDEX: 9,'),
+                call(26, 0, '                  MODULE_VOLTAGE_09: 39064,'),
+                call(27, 0, '                  MODULE_TEMP_09: 11'),
+                call(28, 0, '              )'),
                 call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan'),
 
                 # Move back to page 3
                 call(0, 0, 'Received: 19, Discarded: 0, Errors: 0'),
                 call(1, 0, '   TIMESTAMP  MESSAGE                                           ', 'green'),
-                call(2, 0, '              )'),
-                call(3, 0, '       2.000  BATTERY_VT('),
-                call(4, 0, '                  BATTERY_VT_INDEX: 2,'),
-                call(5, 0, '                  MODULE_VOLTAGE_02: 39064,'),
-                call(6, 0, '                  MODULE_TEMP_02: 11'),
-                call(7, 0, '              )'),
-                call(8, 0, '       3.000  BATTERY_VT('),
-                call(9, 0, '                  BATTERY_VT_INDEX: 3,'),
-                call(10, 0, '                  MODULE_VOLTAGE_03: 39064,'),
-                call(11, 0, '                  MODULE_TEMP_03: 11'),
-                call(12, 0, '              )'),
-                call(13, 0, '       4.000  BATTERY_VT('),
-                call(14, 0, '                  BATTERY_VT_INDEX: 4,'),
-                call(15, 0, '                  MODULE_VOLTAGE_04: 39064,'),
-                call(16, 0, '                  MODULE_TEMP_04: 11'),
-                call(17, 0, '              )'),
-                call(18, 0, '       5.000  BATTERY_VT('),
-                call(19, 0, '                  BATTERY_VT_INDEX: 5,'),
-                call(20, 0, '                  MODULE_VOLTAGE_05: 39064,'),
-                call(21, 0, '                  MODULE_TEMP_05: 11'),
-                call(22, 0, '              )'),
-                call(23, 0, '       6.000  BATTERY_VT('),
-                call(24, 0, '                  BATTERY_VT_INDEX: 6,'),
-                call(25, 0, '                  MODULE_VOLTAGE_06: 39064,'),
-                call(26, 0, '                  MODULE_TEMP_06: 11'),
-                call(27, 0, '              )'),
-                call(28, 0, '       7.000  BATTERY_VT('),
+                call(2, 0, '                  BATTERY_VT_INDEX: 16,'),
+                call(3, 0, '                  MODULE_VOLTAGE_16: 39064,'),
+                call(4, 0, '                  MODULE_TEMP_16: 11'),
+                call(5, 0, '              )'),
+                call(6, 0, '      17.000  BATTERY_VT('),
+                call(7, 0, '                  BATTERY_VT_INDEX: 17,'),
+                call(8, 0, '                  MODULE_VOLTAGE_17: 39064,'),
+                call(9, 0, '                  MODULE_TEMP_17: 11'),
+                call(10, 0, '              )'),
+                call(11, 0, '      18.000  BATTERY_VT('),
+                call(12, 0, '                  BATTERY_VT_INDEX: 18,'),
+                call(13, 0, '                  MODULE_VOLTAGE_18: 39064,'),
+                call(14, 0, '                  MODULE_TEMP_18: 11'),
+                call(15, 0, '              )'),
+                call(16, 0, '       2.000  BATTERY_VT('),
+                call(17, 0, '                  BATTERY_VT_INDEX: 2,'),
+                call(18, 0, '                  MODULE_VOLTAGE_02: 39064,'),
+                call(19, 0, '                  MODULE_TEMP_02: 11'),
+                call(20, 0, '              )'),
+                call(21, 0, '       3.000  BATTERY_VT('),
+                call(22, 0, '                  BATTERY_VT_INDEX: 3,'),
+                call(23, 0, '                  MODULE_VOLTAGE_03: 39064,'),
+                call(24, 0, '                  MODULE_TEMP_03: 11'),
+                call(25, 0, '              )'),
+                call(26, 0, '       4.000  BATTERY_VT('),
+                call(27, 0, '                  BATTERY_VT_INDEX: 4,'),
+                call(28, 0, '                  MODULE_VOLTAGE_04: 39064,'),
                 call(29, 0, 'q: Quit, f: Filter, p: Play/Pause, r: Reset                     ', 'cyan'),
             ])
 
