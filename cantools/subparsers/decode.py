@@ -56,18 +56,12 @@ def _do_decode(args):
             if frame is not None:
                 if not frame.frame_id in args.id_filter and len(args.id_filter) > 0: continue
 
-                try:
-                    line += ' ::'
-                    line += format_message_by_frame_id(dbase,
-                                                       frame.frame_id,
-                                                       frame.data,
-                                                       decode_choices,
-                                                       args.single_line)
-                except KeyError:
-                    print('Skipping as not in DB')
-                    continue
-
-                if not args.quiet: print(line)
+                line += ' ::'
+                line += format_message_by_frame_id(dbase,
+                                                   frame.frame_id,
+                                                   frame.data,
+                                                   decode_choices,
+                                                   args.single_line)
 
                 try:
                     if args.influxdb:
@@ -95,6 +89,9 @@ def _do_decode(args):
                             if not args.quiet: print('InfluxDB json: {}'.format(json))
                 except KeyError:
                     print('Skipping write')
+
+            if not args.quiet: print(line)
+
 
         if args.influxdb:
             writing = True

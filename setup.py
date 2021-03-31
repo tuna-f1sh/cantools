@@ -32,7 +32,7 @@ setup(name='cantools',
           'diskcache',
           'influxdb',
           'tqdm',
-          'argparse_addons',
+          'argparse_addons'
       ],
       extras_require=dict(
           plot=['matplotlib'],
